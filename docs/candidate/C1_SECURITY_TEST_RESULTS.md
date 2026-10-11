@@ -27,3 +27,7 @@ Historical controlled workflow run 38162508915: 9 Bun unit/source tests PASS, 0 
 Mandatory future two-identity tests: anonymous submission, candidate A→B profile/CV/stage notes/offers; self direct stage-history SELECT; forged identity/tenant; signed URL storage path; duplicate concurrent apply; expired/revoked session; offer repeat, employee-role escalation. These cannot be replaced by source-string checks.
 
 Security result: NOT CERTIFIED. Production database intentionally unchanged.
+
+## Verified PR source validation
+
+GitHub Actions run 38163682170: 13 Bun source/unit/release-contract tests PASS, 0 FAIL, TypeScript PASS, correct production bundle path PASS. Real authenticated SQL/RLS tests 0. This validates neither row confidentiality nor candidate E2E runtime.

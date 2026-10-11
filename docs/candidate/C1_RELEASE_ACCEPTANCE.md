@@ -33,3 +33,10 @@ Run 38162508915: 9/9 Bun tests passed, TypeScript passed, Vite produced dist/ind
 **Acceptance decision: NO-GO** for merging/deploying candidate-facing functionality until security review and authenticated gates pass. The release pipeline fix can pass CI independently but is not an authorization certification. Preserve PR until permitted to merge by verified gates. No further candidate-feature expansion under this C1 task.
 
 External dependency: HR-side acceptance, joining verification and preservation of original Auth ID in employee activation remain unverified in Main HRIS.
+
+## Verified PR CI gate — first run
+
+- Pull request: https://github.com/shihab-tech04/HRIS-Candidate-v2/pull/1
+- GitHub Actions: https://github.com/shihab-tech04/HRIS-Candidate-v2/actions/runs/38163682170
+- Result: PASS — 13 Bun tests / 0 failures across 4 files, TypeScript PASS, compiled Vite output has correct Candidate-v2 JS/CSS paths.
+- This was a PR-only build, not a deployment. Served HTTPS application and the candidate SQL end-to-end tests remain NOT TESTED.

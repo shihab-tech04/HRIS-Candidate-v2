@@ -27,3 +27,15 @@ test('Canonical entry HTML and static fallback have valid repository paths',()=>
  expect(fallback).toContain('/HRIS-Candidate-v2/');
  expect(fallback).not.toContain('/HRIS-Candidate/assets/');
 });
+
+test('C1 audit deliverables state the unverified gates explicitly',()=>{
+ for (const file of ['C1_SOURCE_AUDIT.md','C1_SQL_INTEGRATION_MATRIX.md',
+  'C1_UX_RESPONSIVE_AUDIT.md','C1_SECURITY_TEST_RESULTS.md','C1_RELEASE_ACCEPTANCE.md']) {
+  const doc=readFileSync('docs/candidate/'+file,'utf8');
+  expect(doc.length).toBeGreaterThan(350);
+ }
+ const security=readFileSync('docs/candidate/C1_SECURITY_TEST_RESULTS.md','utf8');
+ expect(security).toContain('NOT CERTIFIED');
+ const release=readFileSync('docs/candidate/C1_RELEASE_ACCEPTANCE.md','utf8');
+ expect(release).toContain('NO-GO');
+});
