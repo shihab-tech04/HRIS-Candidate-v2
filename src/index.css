@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --color-synesis-50: #eff7fc;
+  --color-synesis-100: #dbeef9;
+  --color-synesis-200: #bcdcf2;
+  --color-synesis-300: #8ec2e7;
+  --color-synesis-400: #57a1d8;
+  --color-synesis-500: #3084c5;
+  --color-synesis-600: #1f6aa9;
+  --color-synesis-700: #195488;
+  --color-synesis-800: #085587;
+  --color-synesis-900: #123d60;
+  --color-synesis-950: #0b263f;
+}
+
+:root {
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}

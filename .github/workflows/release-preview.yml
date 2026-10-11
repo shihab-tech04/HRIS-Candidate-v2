@@ -1,0 +1,82 @@
+name: HRMIS controlled GitHub Pages release
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release-preview.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hrmis-pages-release
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish-static-root:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run lint
+      - name: Build for GitHub Pages (no demo accounts)
+        env:
+          VITE_SUPABASE_URL: https://oslgwxaqfbteqtwqvdzs.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_fjNbVQbzBzIA8INgwJyPJQ_6vTd3PZv
+          VITE_ENABLE_DEMO_MODE: "false"
+        run: |
+          grep -Fq 'adaptLiveRecruitmentContext(data)' src/lib/api.ts
+          grep -Fq 'p_proposed_times:' src/lib/api.ts
+          grep -Fq 'p_file_path:' src/lib/api.ts
+          grep -Fq 'p_note:' src/lib/api.ts
+          grep -Fq "storage.from('candidate-documents')" src/lib/api.ts
+          grep -Fq 'verificationRequired: true' src/context/AuthContext.tsx
+          grep -Fq 'if (res.verificationRequired)' src/components/auth/AuthModal.tsx
+          grep -Fq "if (!DEMO_MODE) return { success: false, error: 'Registration service unavailable.' };" src/context/AuthContext.tsx
+          bunx vite build --base=/HRIS-Candidate/
+          test -s dist/app.html
+          mv dist/app.html dist/index.html
+          cp dist/index.html dist/404.html
+          grep -q '/HRIS-Candidate/assets/' dist/index.html
+          if grep -q 'src="/src/main.tsx"' dist/index.html; then
+            echo "Unexpected uncompiled Vite entry point" >&2
+            exit 1
+          fi
+      - name: Publish compiled site to branch-source Pages (only when files change)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -d assets ]; then git rm -r -q --ignore-unmatch assets || true; fi
+          mkdir -p assets
+          cp -a dist/assets/. assets/
+          cp dist/index.html index.html
+          cp dist/404.html 404.html
+          git add -A -- index.html 404.html assets
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(pages): synchronize tested production static assets [skip ci]"
+            git push origin HEAD:main
+          fi
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build-and-publish-static-root
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy verified compiled bundle
+        id: deployment
+        uses: actions/deploy-pages@v4

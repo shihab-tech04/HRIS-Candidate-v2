@@ -1,0 +1,24 @@
+name: Recovery validation (manual, no deployment)
+on:
+  pull_request:
+    branches: [main]
+    paths: ['src/**', 'tests/**', '.github/workflows/recovery-validation.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run lint
+      - run: bun run build
+      # Deliberately no Supabase writes, hosting, Pages, deployments, or production secrets.

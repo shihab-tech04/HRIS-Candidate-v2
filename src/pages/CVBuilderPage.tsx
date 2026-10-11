@@ -1,0 +1,388 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { CandidateCV, CandidateProfile } from '../types';
+import { listCandidateCVs, persistCandidateCV, uploadCandidateCV, getCandidateCVDownloadUrl } from '../lib/api';
+import {
+  FileText,
+  Upload,
+  Download,
+  Printer,
+  Copy,
+  Plus,
+  CheckCircle2,
+  AlertCircle,
+  FileCheck,
+  Eye,
+  Trash2,
+  RefreshCw,
+  Sparkles
+} from 'lucide-react';
+
+interface CVBuilderPageProps {
+  onNavigate: (tab: string) => void;
+}
+
+export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
+  const { user, profile } = useAuth();
+  const [cvList, setCvList] = useState<CandidateCV[]>([]);
+  const [selectedCv, setSelectedCv] = useState<CandidateCV | null>(null);
+
+  // New version modal
+  const [newTitle, setNewTitle] = useState('');
+  const [newVersion, setNewVersion] = useState('v1.0');
+  const [isDefault, setIsDefault] = useState(false);
+
+  // File upload state with safe parsing simulation
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [parseNotice, setParseNotice] = useState<string | null>(null);
+
+  // Editable CV Content
+  const [cvData, setCvData] = useState<Partial<CandidateProfile>>({});
+  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      loadCVs();
+    }
+  }, [user]);
+
+  const loadCVs = async () => {
+    if (!user) return;
+    try {
+      const list = await listCandidateCVs(user.id);
+      setCvList(list);
+      if (list.length > 0) {
+        const active = list.find(c => c.is_default) || list[0];
+        setSelectedCv(active);
+        setCvData({ ...(profile || {}), ...(active.structured_content || {}) });
+      } else {
+        setSelectedCv(null);
+      }
+      setSaveError(null);
+    } catch (error) {
+      setCvList([]);
+      setSaveError(error instanceof Error ? error.message : 'Unable to load CV records.');
+    }
+  };
+
+  const handleSelectCv = (cv: CandidateCV) => {
+    setSelectedCv(cv);
+    setCvData(cv.structured_content || profile || {});
+    setParseNotice(null);
+  };
+
+  const handleCreateCv = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !newTitle.trim()) return;
+    try {
+      const created = await persistCandidateCV(user.id, {
+        title: newTitle.trim(),
+        version: newVersion.trim() || 'v1.0',
+        is_default: isDefault,
+        structured_content: { summary: profile?.summary || '' }
+      });
+      await loadCVs();
+      setSelectedCv(created);
+      setCvData({ ...(profile || {}), ...(created.structured_content || {}) });
+      setNewTitle('');
+      setSaveError(null);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'CV was not created.');
+    }
+  };
+
+  const handleSaveStructuredCV = async () => {
+    if (!user || !selectedCv) return;
+    try {
+      const saved = await persistCandidateCV(user.id, {
+        ...selectedCv, structured_content: { summary: cvData.summary || '' }
+      });
+      setSelectedCv(saved);
+      await loadCVs();
+      setSaveError(null);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (error) {
+      setSavedSuccess(false);
+      setSaveError(error instanceof Error ? error.message : 'CV summary was not saved.');
+    }
+  };
+
+  const handleSimulateSafeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user || !selectedCv) return;
+    setUploadFile(file);
+    setParsing(true);
+    setParseNotice(null);
+    try {
+      const stored = await uploadCandidateCV(user.id, selectedCv, file);
+      setSelectedCv(stored);
+      await loadCVs();
+      setParseNotice('CV uploaded to private storage. Automatic parsing is not yet available; update your candidate profile manually.');
+      setSaveError(null);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'CV upload failed.');
+    } finally {
+      setParsing(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!user || !selectedCv) return;
+    try {
+      const signedUrl = await getCandidateCVDownloadUrl(user.id, selectedCv);
+      window.open(signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'CV download unavailable.');
+    }
+  };
+
+  const handlePrintCV = () => {
+    window.print();
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 py-10">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+        {/* Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <span className="text-xs uppercase tracking-wider font-semibold text-[#085587]">
+              Documents & Resumes
+            </span>
+            <h1 className="text-2xl font-bold text-slate-900 mt-1">
+              Structured CV Builder & Manager
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Create tailored CV versions, upload PDF/Word resumes, and export clean printable documents.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrintCV}
+              className="py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-500" />
+              Print / Save PDF
+            </button>
+            <button
+              onClick={handleSaveStructuredCV}
+              className="py-2 px-4 bg-[#085587] text-white hover:bg-[#074771] rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Save CV Version
+            </button>
+          </div>
+        </div>
+
+        {saveError && <p role="alert" className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm">{saveError}</p>}
+        {savedSuccess && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span>CV record and custom summary saved to HRMIS.</span>
+          </div>
+        )}
+
+        {parseNotice && (
+          <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-800 flex items-center gap-2">
+            <FileCheck className="w-4 h-4 text-[#085587]" />
+            <span>{parseNotice}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Col: Versions List & Upload */}
+          <div className="space-y-6">
+            {/* Version List */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Managed CV Versions
+              </h2>
+              <div className="space-y-2">
+                {cvList.map((cv) => (
+                  <div
+                    key={cv.id}
+                    onClick={() => handleSelectCv(cv)}
+                    className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                      selectedCv?.id === cv.id
+                        ? 'border-[#085587] bg-sky-50/50 ring-1 ring-[#085587]'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 truncate">{cv.title}</span>
+                      {cv.is_default && (
+                        <span className="text-[10px] font-semibold text-[#085587] bg-sky-100 px-1.5 py-0.2 rounded">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                      <span>{cv.version}</span>
+                      <span>Updated {new Date(cv.updated_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add version form */}
+              <div className="pt-3 border-t border-slate-100">
+                <p className="text-[11px] font-bold text-slate-700 mb-2">Create New Version:</p>
+                <form onSubmit={handleCreateCv} className="space-y-2">
+                  <input
+                    type="text"
+                    required
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="Version title (e.g. Lead Architect CV)"
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newVersion}
+                      onChange={(e) => setNewVersion(e.target.value)}
+                      placeholder="v2.0"
+                      className="w-20 px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg"
+                    />
+                    <button
+                      type="submit"
+                      className="flex-1 py-1.5 px-3 bg-slate-800 text-white text-xs font-semibold rounded-lg hover:bg-slate-900"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            {/* Upload PDF/Word Box */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Upload External File (PDF/DOCX)
+              </h2>
+              <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center">
+                <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                <p className="text-xs font-medium text-slate-700">Select file to parse</p>
+                <p className="text-[11px] text-slate-400 mb-2.5">
+                  Extracted details will be editable before saving
+                </p>
+                <label className="inline-block py-1.5 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">
+                  {parsing ? 'Parsing...' : 'Choose File'}
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    className="hidden"
+                    onChange={handleSimulateSafeUpload}
+                    disabled={parsing}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Col: Structured CV Preview & Live Editor (2 spans) */}
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0">
+              {/* Printable Header */}
+              <div className="border-b border-slate-200 pb-6 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-slate-900 tracking-tight font-sans">
+                    {cvData.full_name || profile?.full_name || 'Candidate'}
+                  </h2>
+                  <span className="text-xs text-slate-400 font-mono">
+                    {selectedCv?.version || 'v1.0'}
+                  </span>
+                </div>
+                <p className="text-sm font-semibold text-[#085587]">
+                  {cvData.headline || profile?.headline || 'Professional headline'}
+                </p>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 pt-1">
+                  <span>{cvData.location || profile?.location || 'Location not entered'}</span>
+                  <span>·</span>
+                  <span>{cvData.phone || profile?.phone || 'Phone not entered'}</span>
+                  <span>·</span>
+                  <span>{cvData.email || user?.email}</span>
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                  Professional Summary
+                </h3>
+                <textarea
+                  rows={3}
+                  value={cvData.summary || ''}
+                  onChange={(e) => setCvData({ ...cvData, summary: e.target.value })}
+                  placeholder="Summary statement..."
+                  className="w-full p-2 text-xs border border-transparent hover:border-slate-200 focus:border-[#085587] rounded-lg focus:outline-none transition-colors"
+                />
+              </div>
+
+              {/* Skills */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                  Technical Core Competencies
+                </h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {(cvData.skills || profile?.skills || []).map((skill, i) => (
+                    <span
+                      key={i}
+                      className="px-2.5 py-1 bg-slate-100 text-slate-800 rounded-md text-xs font-medium"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Experiences */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                  Work Experience
+                </h3>
+                {(cvData.experiences || profile?.experiences || []).map((exp, i) => (
+                  <div key={i} className="space-y-1 text-xs">
+                    <div className="flex items-center justify-between font-bold text-slate-900">
+                      <span>{exp.title}</span>
+                      <span className="text-slate-500 font-normal">
+                        {exp.start_date} – {exp.current ? 'Present' : exp.end_date}
+                      </span>
+                    </div>
+                    <p className="text-slate-600 font-medium">{exp.company}</p>
+                    <p className="text-slate-600 leading-relaxed pt-0.5">{exp.description}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Education */}
+              <div className="space-y-3 pt-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                  Academic Credentials
+                </h3>
+                {(cvData.educations || profile?.educations || []).map((edu, i) => (
+                  <div key={i} className="text-xs">
+                    <div className="flex items-center justify-between font-bold text-slate-900">
+                      <span>
+                        {edu.degree} in {edu.field_of_study}
+                      </span>
+                      <span className="text-slate-500 font-normal">
+                        {edu.start_year} – {edu.end_year || 'Present'}
+                      </span>
+                    </div>
+                    <p className="text-slate-600">{edu.institution}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
