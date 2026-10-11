@@ -1,73 +1,54 @@
-name: HRMIS controlled GitHub Pages release
+name: Candidate-v2 verified GitHub Pages release
 on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/release-preview.yml
+      - '.github/workflows/release-preview.yml'
+      - 'src/**'
+      - 'tests/**'
+      - 'index.html'
+      - '404.html'
+      - 'package.json'
+      - 'vite.config.ts'
+      - 'bun.lock*'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: hrmis-pages-release
+  group: candidate-v2-pages
   cancel-in-progress: false
 
 jobs:
-  build-and-publish-static-root:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run lint
-      - name: Build for GitHub Pages (no demo accounts)
+      - name: Build compiled Candidate-v2 Pages artifact
         env:
           VITE_SUPABASE_URL: https://oslgwxaqfbteqtwqvdzs.supabase.co
           VITE_SUPABASE_ANON_KEY: sb_publishable_fjNbVQbzBzIA8INgwJyPJQ_6vTd3PZv
-          VITE_ENABLE_DEMO_MODE: "false"
+          VITE_ENABLE_DEMO_MODE: 'false'
         run: |
-          grep -Fq 'adaptLiveRecruitmentContext(data)' src/lib/api.ts
-          grep -Fq 'p_proposed_times:' src/lib/api.ts
-          grep -Fq 'p_file_path:' src/lib/api.ts
-          grep -Fq 'p_note:' src/lib/api.ts
-          grep -Fq "storage.from('candidate-documents')" src/lib/api.ts
-          grep -Fq 'verificationRequired: true' src/context/AuthContext.tsx
-          grep -Fq 'if (res.verificationRequired)' src/components/auth/AuthModal.tsx
-          grep -Fq "if (!DEMO_MODE) return { success: false, error: 'Registration service unavailable.' };" src/context/AuthContext.tsx
-          bunx vite build --base=/HRIS-Candidate/
-          test -s dist/app.html
-          mv dist/app.html dist/index.html
+          bunx vite build --base=/HRIS-Candidate-v2/
+          test -s dist/index.html
           cp dist/index.html dist/404.html
-          grep -q '/HRIS-Candidate/assets/' dist/index.html
-          if grep -q 'src="/src/main.tsx"' dist/index.html; then
-            echo "Unexpected uncompiled Vite entry point" >&2
-            exit 1
-          fi
-      - name: Publish compiled site to branch-source Pages (only when files change)
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -d assets ]; then git rm -r -q --ignore-unmatch assets || true; fi
-          mkdir -p assets
-          cp -a dist/assets/. assets/
-          cp dist/index.html index.html
-          cp dist/404.html 404.html
-          git add -A -- index.html 404.html assets
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(pages): synchronize tested production static assets [skip ci]"
-            git push origin HEAD:main
-          fi
-      - uses: actions/upload-pages-artifact@v4
+          grep -Eq 'src="/HRIS-Candidate-v2/assets/[^"]+\.js"' dist/index.html
+          grep -Eq 'href="/HRIS-Candidate-v2/assets/[^"]+\.css"' dist/index.html
+          ! grep -Eq 'src="/src/main\.tsx"|/HRIS-Candidate/assets/' dist/index.html
+          grep -Fq 'id="root"' dist/index.html
+      - name: Upload compiled GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
         with:
           path: dist
-
   deploy:
-    needs: build-and-publish-static-root
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -75,8 +56,31 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: https://shihab-tech04.github.io/HRIS-Candidate-v2/
     steps:
-      - name: Deploy verified compiled bundle
-        id: deployment
+      - name: Deploy compiled bundle
         uses: actions/deploy-pages@v4
+      - name: Verify served HTML, compiled JavaScript and CSS
+        env:
+          BASE_URL: https://shihab-tech04.github.io/HRIS-Candidate-v2/
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsSL "$BASE_URL" -o live.html &&
+              grep -q '/HRIS-Candidate-v2/assets/' live.html &&
+              ! grep -q '/HRIS-Candidate/assets/' live.html; then
+              break
+            fi
+            if [ "$attempt" -eq 6 ]; then
+              echo "Pages did not serve the compiled Candidate-v2 bundle" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          js="$(grep -oE '/HRIS-Candidate-v2/assets/[^"]+\.js' live.html | head -n1)"
+          css="$(grep -oE '/HRIS-Candidate-v2/assets/[^"]+\.css' live.html | head -n1)"
+          test -n "$js" && test -n "$css"
+          curl -fsSL "https://shihab-tech04.github.io$js" -o live.js
+          curl -fsSL "https://shihab-tech04.github.io$css" -o live.css
+          test -s live.js && test -s live.css
+          echo "Served compiled HTML, JavaScript and CSS verified."
