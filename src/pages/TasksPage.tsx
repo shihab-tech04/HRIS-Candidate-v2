@@ -28,6 +28,7 @@ export const TasksPage: React.FC<TasksPageProps> = ({ onNavigate }) => {
   const [assessments, setAssessments] = useState<CandidateAssessment[]>([]);
   const [docRequests, setDocRequests] = useState<CandidateDocumentRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Active submission modals
   const [activeAssessment, setActiveAssessment] = useState<CandidateAssessment | null>(null);
@@ -46,12 +47,18 @@ export const TasksPage: React.FC<TasksPageProps> = ({ onNavigate }) => {
   }, [user]);
 
   const loadData = async () => {
-    if (!user) return;
+    if (!user) { setAssessments([]); setDocRequests([]); setLoading(false); return; }
     setLoading(true);
-    const ctx = await getRecruitmentContext(user.id);
-    setAssessments(ctx.assessments || []);
-    setDocRequests(ctx.document_requests || []);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const ctx = await getRecruitmentContext(user.id);
+      setAssessments(ctx.assessments || []); setDocRequests(ctx.document_requests || []);
+    } catch (cause) {
+      setAssessments([]); setDocRequests([]);
+      setLoadError(cause instanceof Error ? cause.message : 'Unable to load records. Please retry.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAssessmentSubmit = async (e: React.FormEvent) => {
@@ -107,6 +114,11 @@ export const TasksPage: React.FC<TasksPageProps> = ({ onNavigate }) => {
     }
   };
 
+  if (loadError) return <main className="max-w-4xl mx-auto px-4 py-16">
+    <h1 className="text-xl font-semibold">Unable to load records</h1>
+    <p role="alert" className="mt-3 text-sm text-red-700">{loadError}</p>
+    <button type="button" className="min-h-11 mt-4 px-4 rounded-lg border" onClick={() => void loadData()}>Retry</button>
+  </main>;
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-16">

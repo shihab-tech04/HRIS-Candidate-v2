@@ -26,6 +26,7 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
   const [handoff, setHandoff] = useState<OnboardingHandoff | null>(null);
   const [activeOffer, setActiveOffer] = useState<JobOffer | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Stepper: 1: Legal Identity, 2: Emergency Contact, 3: Banking & Tax, 4: Policy Acknowledgment
   const [activeStep, setActiveStep] = useState<number>(1);
@@ -34,13 +35,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
   const [formData, setFormData] = useState({
     national_id: '',
     passport_number: '',
-    date_of_birth: '1995-04-12',
-    nationality: 'Bangladeshi',
-    address: 'Road 12, Banani, Dhaka-1213, Bangladesh',
+    date_of_birth: '',
+    nationality: '',
+    address: '',
     emergency_contact_name: '',
     emergency_contact_phone: '',
-    emergency_contact_relation: 'Spouse',
-    bank_name: 'Dutch-Bangla Bank PLC',
+    emergency_contact_relation: '',
+    bank_name: '',
     bank_account_number: '',
     tax_identification_number: '',
     policies_accepted: false
@@ -55,22 +56,18 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
   }, [user]);
 
   const loadData = async () => {
-    if (!user) return;
+    if (!user) { setActiveOffer(null); setHandoff(null); setLoading(false); return; }
     setLoading(true);
-    const ctx = await getRecruitmentContext(user.id);
-    const acceptedOffer = ctx.offers?.find((o: any) => o.status === 'accepted') || null;
-    setActiveOffer(acceptedOffer);
-
-    if (ctx.onboarding) {
-      setHandoff(ctx.onboarding);
-      if (ctx.onboarding.personal_data) {
-        setFormData((prev) => ({
-          ...prev,
-          ...ctx.onboarding.personal_data
-        }));
-      }
+    setLoadError(null);
+    try {
+      const ctx = await getRecruitmentContext(user.id);
+      const acceptedOffer = ctx.offers?.find((o: any) => o.status === 'accepted') || null; setActiveOffer(acceptedOffer); if (ctx.onboarding) { setHandoff(ctx.onboarding); if (ctx.onboarding.personal_data) setFormData(prev => ({ ...prev, ...ctx.onboarding.personal_data })); } else setHandoff(null);
+    } catch (cause) {
+      setActiveOffer(null); setHandoff(null);
+      setLoadError(cause instanceof Error ? cause.message : 'Unable to load records. Please retry.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSaveStep = async (stepKey: string) => {
@@ -90,6 +87,11 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
     }
   };
 
+  if (loadError) return <main className="max-w-4xl mx-auto px-4 py-16">
+    <h1 className="text-xl font-semibold">Unable to load records</h1>
+    <p role="alert" className="mt-3 text-sm text-red-700">{loadError}</p>
+    <button type="button" className="min-h-11 mt-4 px-4 rounded-lg border" onClick={() => void loadData()}>Retry</button>
+  </main>;
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-16">
@@ -138,10 +140,10 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
             <div>
               <p className="text-xs font-semibold text-slate-500">Target Role</p>
               <h2 className="text-lg font-bold text-slate-900">
-                {activeOffer?.job_title || 'Software Engineering Staff'}
+                {activeOffer?.job_title || 'Position pending HR confirmation'}
               </h2>
               <p className="text-xs text-slate-500">
-                Proposed Start Date: <strong>{activeOffer?.start_date || 'December 1, 2026'}</strong>
+                Proposed Start Date: <strong>{activeOffer?.start_date || 'Not yet confirmed'}</strong>
               </p>
             </div>
 
