@@ -39,3 +39,21 @@ test('C1 audit deliverables state the unverified gates explicitly',()=>{
  const release=readFileSync('docs/candidate/C1_RELEASE_ACCEPTANCE.md','utf8');
  expect(release).toContain('NO-GO');
 });
+
+test('Production public-only build blocks unverified candidate actions',()=>{
+ const workflow=readFileSync('.github/workflows/release-preview.yml','utf8');
+ const app=readFileSync('src/App.tsx','utf8');
+ const preview=readFileSync('src/pages/PublicOnlyCareers.tsx','utf8');
+ expect(workflow).toContain("VITE_CANDIDATE_PUBLIC_ONLY: 'true'");
+ expect(app).toContain("import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true'");
+ expect(preview).toContain('<PublicJobsPage publicOnly');
+ expect(preview).toContain('<VerifiedJobDetails jobId={jobId} publicOnly');
+ expect(preview).not.toContain('<AuthModal');
+ expect(preview).not.toContain('VerifiedApplyPage');
+});
+test('Published hero and culture assets are compiled through Vite import, not root source URLs',()=>{
+ const jobs=readFileSync('src/pages/PublicJobsPage.tsx','utf8');
+ expect(jobs).toContain("import careersHero");
+ expect(jobs).toContain("import cultureImage");
+ expect(jobs).not.toContain('src="/src/assets/');
+});

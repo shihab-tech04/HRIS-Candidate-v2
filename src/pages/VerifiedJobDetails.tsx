@@ -2,8 +2,8 @@ import React,{useEffect,useState} from 'react';
 import {useAuth} from '../context/AuthContext';
 import {PublishedJob} from '../types';
 import {getPublishedJobById,listVerifiedSavedJobIds,toggleVerifiedSavedJob} from '../lib/api';
-type Props={jobId:string;onBack:()=>void;onApply:(id:string)=>void;onOpenAuth:(reason?:string)=>void};
-export default function VerifiedJobDetails({jobId,onBack,onApply,onOpenAuth}:Props){
+type Props={jobId:string;onBack:()=>void;onApply:(id:string)=>void;onOpenAuth:(reason?:string)=>void;publicOnly?:boolean};
+export default function VerifiedJobDetails({jobId,onBack,onApply,onOpenAuth,publicOnly=false}:Props){
  const {user}=useAuth();
  const [job,setJob]=useState<PublishedJob|null>(null);
  const [saved,setSaved]=useState(false);
@@ -16,14 +16,14 @@ export default function VerifiedJobDetails({jobId,onBack,onApply,onOpenAuth}:Pro
     const x=await getPublishedJobById(jobId);
     if(!alive)return;
     setJob(x);
-    if(user&&x){const ids=await listVerifiedSavedJobIds(user.id);if(alive)setSaved(ids.includes(x.id));}
+    if(user&&!publicOnly&&x){const ids=await listVerifiedSavedJobIds(user.id);if(alive)setSaved(ids.includes(x.id));}
    }catch(e){if(alive)setError(e instanceof Error?e.message:'Could not load job.');}
   })();
   return()=>{alive=false;};
  },[jobId,user?.id]);
  async function toggle(){
   if(!job)return;
-  if(!user){onOpenAuth('Sign in to save vacancies.');return;}
+  if(publicOnly||!user){onOpenAuth('Saved jobs are not available during the public preview.');return;}
   setBusy(true);setError('');
   try{setSaved(await toggleVerifiedSavedJob(user.id,job.id,job));}
   catch(e){setError(e instanceof Error?e.message:'Could not save job.');}

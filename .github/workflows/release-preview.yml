@@ -35,6 +35,7 @@ jobs:
           VITE_SUPABASE_URL: https://oslgwxaqfbteqtwqvdzs.supabase.co
           VITE_SUPABASE_ANON_KEY: sb_publishable_fjNbVQbzBzIA8INgwJyPJQ_6vTd3PZv
           VITE_ENABLE_DEMO_MODE: 'false'
+          VITE_CANDIDATE_PUBLIC_ONLY: 'true'
         run: |
           bunx vite build --base=/HRIS-Candidate-v2/
           test -s dist/index.html
@@ -43,6 +44,8 @@ jobs:
           grep -Eq 'href="/HRIS-Candidate-v2/assets/[^"]+\.css"' dist/index.html
           ! grep -Eq 'src="/src/main\.tsx"|/HRIS-Candidate/assets/' dist/index.html
           grep -Fq 'id="root"' dist/index.html
+          ! grep -q '/src/assets/images/' dist/index.html
+          ! grep -q 'VITE_CANDIDATE_PUBLIC_ONLY' dist/index.html
       - name: Upload compiled GitHub Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
