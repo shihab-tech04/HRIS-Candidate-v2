@@ -149,22 +149,22 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
               Build Mission-Critical Platforms That Move Nations Forward
             </h1>
             <p className="text-base sm:text-lg text-slate-300 font-normal leading-relaxed mb-8">
-              Join visionary engineering, design, and HR professionals delivering nationwide digital infrastructure, healthcare tech, and enterprise cloud solutions.
+              Explore roles at Synesis IT. Candidate registration and applications are temporarily unavailable while privacy and access checks are completed.
             </p>
 
             {/* Quick Hero Highlights */}
             <div className="flex flex-wrap items-center gap-6 text-xs text-slate-300 pt-2 border-t border-slate-800/80">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Synchronized with Synesis HRIS Main</span>
+                <span>View verified published vacancies</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Single Identity Candidate-to-Employee Transition</span>
+                <span>Search roles by department and work type</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Transparent Application Tracking</span>
+                <span>Applications will open after security testing</span>
               </div>
             </div>
           </div>
@@ -181,6 +181,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                 <input
                   type="text"
+                  aria-label="Search vacancies"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search by job title, skill (TypeScript, Docker), or keyword..."
@@ -201,7 +202,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                 <span className="text-xs font-semibold text-slate-500 mr-1 flex items-center gap-1">
                   <Filter className="w-3.5 h-3.5" /> Department:
                 </span>
-                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg max-w-full min-w-0">
                   {departments.map((dept) => (
                     <button
                       key={dept}
@@ -224,6 +225,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                   <span className="font-semibold text-slate-500">Workplace:</span>
                   <select
                     value={workplaceType}
+                    aria-label="Workplace type"
                     onChange={(e) => setWorkplaceType(e.target.value)}
                     className="bg-slate-100 border-none text-xs rounded-lg px-2.5 py-1 text-slate-700 font-medium focus:ring-2 focus:ring-[#085587]"
                   >
@@ -239,6 +241,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                   <span className="font-semibold text-slate-500">Type:</span>
                   <select
                     value={employmentType}
+                    aria-label="Employment type"
                     onChange={(e) => setEmploymentType(e.target.value)}
                     className="bg-slate-100 border-none text-xs rounded-lg px-2.5 py-1 text-slate-700 font-medium focus:ring-2 focus:ring-[#085587]"
                   >
@@ -419,16 +422,16 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                 Engineering at Scale with Purpose
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                At Synesis IT, our teams architect systems that serve over 50 million citizens nationwide. We believe in high autonomy, clean architecture, automated pipelines, and continuous learning.
+                Explore career opportunities at Synesis IT and learn how our teams collaborate on digital products and services.
               </p>
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100 text-xs">
                 <div>
-                  <p className="font-bold text-slate-900 text-base">500+ Engineers</p>
-                  <p className="text-slate-500">Across cloud, data, and design</p>
+                  <p className="font-bold text-slate-900 text-base">Collaborative teams</p>
+                  <p className="text-slate-500">Across technical disciplines</p>
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900 text-base">99.98% Uptime</p>
-                  <p className="text-slate-500">National mission-critical services</p>
+                  <p className="font-bold text-slate-900 text-base">Engineering practices</p>
+                  <p className="text-slate-500">Focused on reliable delivery</p>
                 </div>
               </div>
             </div>
