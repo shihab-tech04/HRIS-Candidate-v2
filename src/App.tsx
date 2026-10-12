@@ -17,6 +17,7 @@ import VerifiedJobDetails from './pages/VerifiedJobDetails';
 import { ApplyPage } from './pages/ApplyPage';
 import VerifiedApplyPage from './pages/VerifiedApplyPage';
 import { DEMO_MODE } from './lib/api';
+import { PublicOnlyCareers } from './pages/PublicOnlyCareers';
 import { DashboardPage } from './pages/DashboardPage';
 import { ApplicationsPage } from './pages/ApplicationsPage';
 import { CVBuilderPage } from './pages/CVBuilderPage';
@@ -199,7 +200,7 @@ function MainAppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <MainAppContent />
+      {import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true' ? <PublicOnlyCareers /> : <MainAppContent />}
     </AuthProvider>
   );
 }

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { PublishedJob } from '../types';
 import { getPublishedJobs, toggleVerifiedSavedJob, listVerifiedSavedJobIds } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import careersHero from '../assets/images/hero_synesis_careers_1791597880870.jpg';
+import cultureImage from '../assets/images/synesis_culture_workspace_1791597892615.jpg';
 import {
   Search,
   MapPin,
@@ -22,12 +24,14 @@ interface PublicJobsPageProps {
   onSelectJob: (jobId: string) => void;
   onApplyJob: (jobId: string) => void;
   onOpenAuth: () => void;
+  publicOnly?: boolean;
 }
 
 export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   onSelectJob,
   onApplyJob,
-  onOpenAuth
+  onOpenAuth,
+  publicOnly = false
 }) => {
   const { user } = useAuth();
   const [jobs, setJobs] = useState<PublishedJob[]>([]);
@@ -41,7 +45,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
 
   useEffect(() => {
     loadJobs();
-    if (user) {
+    if (user && !publicOnly) {
       void listVerifiedSavedJobIds(user.id)
         .then(ids => setSavedJobIds(new Set(ids)))
         .catch(e => setLoadError(e instanceof Error ? e.message : 'Unable to load saved jobs.'));
@@ -76,7 +80,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
 
   const handleToggleSave = async (job: PublishedJob, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) { onOpenAuth(); return; }
+    if (publicOnly || !user) { onOpenAuth(); return; }
     try {
       const saved=await toggleVerifiedSavedJob(user.id,job.id,job);
       setSavedJobIds(prev => {
@@ -128,7 +132,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
         {/* Background Image with Scrim */}
         <div className="absolute inset-0">
           <img
-            src="/src/assets/images/hero_synesis_careers_1791597880870.jpg"
+            src={careersHero}
             alt="Synesis Careers Workplace"
             className="w-full h-full object-cover opacity-25"
             referrerPolicy="no-referrer"
@@ -430,7 +434,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
             </div>
             <div className="h-64 sm:h-80 lg:h-full">
               <img
-                src="/src/assets/images/synesis_culture_workspace_1791597892615.jpg"
+                src={cultureImage}
                 alt="Synesis team collaboration"
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"

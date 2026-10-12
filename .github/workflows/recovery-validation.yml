@@ -1,8 +1,15 @@
-name: Recovery validation (manual, no deployment)
+name: Candidate-v2 recovery validation (no deployment)
 on:
   pull_request:
     branches: [main]
-    paths: ['src/**', 'tests/**', '.github/workflows/recovery-validation.yml']
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'index.html'
+      - '404.html'
+      - 'vite.config.ts'
+      - '.github/workflows/release-preview.yml'
+      - '.github/workflows/recovery-validation.yml'
   workflow_dispatch:
 
 permissions:
@@ -20,5 +27,12 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run lint
-      - run: bun run build
-      # Deliberately no Supabase writes, hosting, Pages, deployments, or production secrets.
+      - name: Compile and verify Candidate-v2 Pages paths without deployment
+        run: |
+          bunx vite build --base=/HRIS-Candidate-v2/
+          test -s dist/index.html
+          grep -Eq 'src="/HRIS-Candidate-v2/assets/[^"]+\.js"' dist/index.html
+          grep -Eq 'href="/HRIS-Candidate-v2/assets/[^"]+\.css"' dist/index.html
+          test -n "$(find dist/assets -name '*.js' -print -quit)"
+          test -n "$(find dist/assets -name '*.css' -print -quit)"
+      # No SQL mutation, Pages deployment, Main HRIS modification or production secrets.
