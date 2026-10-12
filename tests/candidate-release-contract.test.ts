@@ -57,3 +57,30 @@ test('Published hero and culture assets are compiled through Vite import, not ro
  expect(jobs).toContain("import cultureImage");
  expect(jobs).not.toContain('src="/src/assets/');
 });
+
+test('C1 protected screens recover from failed context loads',()=>{
+ for (const file of ['ApplicationsPage.tsx','OffersPage.tsx','InterviewsPage.tsx','TasksPage.tsx','PreboardingPage.tsx']) {
+  const page=readFileSync('src/pages/'+file,'utf8');
+  expect(page).toContain('setLoadError(');
+  expect(page).toContain('finally');
+  expect(page).toContain('Retry</button>');
+  expect(page).toContain('setLoading(false)');
+ }
+});
+
+test('C1 public vacancies are deep-linkable without enabling candidate write actions',()=>{
+ const page=readFileSync('src/pages/PublicOnlyCareers.tsx','utf8');
+ expect(page).toContain("new URLSearchParams(window.location.search).get('job')");
+ expect(page).toContain("window.history.pushState");
+ expect(page).toContain("window.addEventListener('popstate'");
+ expect(page).toContain('publicOnly');
+ expect(page).not.toContain('VerifiedApplyPage');
+});
+test('Preboarding never prefills unverified personal or offer information',()=>{
+ const page=readFileSync('src/pages/PreboardingPage.tsx','utf8');
+ expect(page).not.toContain('1995-04-12');
+ expect(page).not.toContain('Road 12, Banani');
+ expect(page).not.toContain('Dutch-Bangla Bank PLC');
+ expect(page).not.toContain('December 1, 2026');
+ expect(page).not.toContain('Software Engineering Staff');
+});

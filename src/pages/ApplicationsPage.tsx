@@ -31,6 +31,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
   const { user } = useAuth();
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedAppId, setExpandedAppId] = useState<string | null>(selectedAppId || null);
 
   // Withdrawal modal state
@@ -44,14 +45,18 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
   }, [user]);
 
   const loadApplications = async () => {
-    if (!user) return;
+    if (!user) { setApplications([]); setLoading(false); return; }
     setLoading(true);
-    const ctx = await getRecruitmentContext(user.id);
-    setApplications(ctx.applications || []);
-    if (!expandedAppId && ctx.applications?.length > 0) {
-      setExpandedAppId(ctx.applications[0].id);
+    setLoadError(null);
+    try {
+      const ctx = await getRecruitmentContext(user.id);
+      setApplications(ctx.applications || []); if (!expandedAppId && ctx.applications?.length > 0) setExpandedAppId(ctx.applications[0].id);
+    } catch (cause) {
+      setApplications([]);
+      setLoadError(cause instanceof Error ? cause.message : 'Unable to load records. Please retry.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleWithdrawSubmit = async (e: React.FormEvent) => {
@@ -73,6 +78,11 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
     }
   };
 
+  if (loadError) return <main className="max-w-4xl mx-auto px-4 py-16">
+    <h1 className="text-xl font-semibold">Unable to load records</h1>
+    <p role="alert" className="mt-3 text-sm text-red-700">{loadError}</p>
+    <button type="button" className="min-h-11 mt-4 px-4 rounded-lg border" onClick={() => void loadApplications()}>Retry</button>
+  </main>;
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-16">
