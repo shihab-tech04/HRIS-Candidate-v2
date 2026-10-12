@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PublishedJob } from '../types';
 import { getPublishedJobs, toggleVerifiedSavedJob, listVerifiedSavedJobIds } from '../lib/api';
+import { createLatestRequestGate } from '../lib/latestRequest.mjs';
 import { useAuth } from '../context/AuthContext';
 import careersHero from '../assets/images/hero_synesis_careers_1791597880870.jpg';
 import cultureImage from '../assets/images/synesis_culture_workspace_1791597892615.jpg';
@@ -37,45 +38,55 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   const [jobs, setJobs] = useState<PublishedJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [savedJobsError, setSavedJobsError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [submittedSearch, setSubmittedSearch] = useState('');
+  const [searchVersion, setSearchVersion] = useState(0);
   const [department, setDepartment] = useState('All');
   const [workplaceType, setWorkplaceType] = useState('All');
   const [employmentType, setEmploymentType] = useState('All');
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
+  const requestGate = useRef(createLatestRequestGate()).current;
 
   useEffect(() => {
-    loadJobs();
-    if (user && !publicOnly) {
-      void listVerifiedSavedJobIds(user.id)
-        .then(ids => setSavedJobIds(new Set(ids)))
-        .catch(e => setLoadError(e instanceof Error ? e.message : 'Unable to load saved jobs.'));
-    } else {
-      setSavedJobIds(new Set());
-    }
-  }, [user, department, workplaceType, employmentType]);
-
-  const loadJobs = async () => {
+    const request = requestGate.open();
     setLoading(true);
     setLoadError(null);
-    try {
-      const data = await getPublishedJobs({
-        search,
-        department,
-        workplace_type: workplaceType,
-        employment_type: employmentType
-      });
-      setJobs(data);
-    } catch (error) {
+    void getPublishedJobs({
+      search: submittedSearch,
+      department,
+      workplace_type: workplaceType,
+      employment_type: employmentType,
+    }).then(data => {
+      if (request.isCurrent()) setJobs(data);
+    }).catch(error => {
+      if (!request.isCurrent()) return;
       setJobs([]);
       setLoadError(error instanceof Error ? error.message : 'Unable to verify available jobs.');
-    } finally {
-      setLoading(false);
+    }).finally(() => {
+      if (request.isCurrent()) setLoading(false);
+    });
+    return request.cancel;
+  }, [submittedSearch, department, workplaceType, employmentType, searchVersion, requestGate]);
+
+  useEffect(() => {
+    let active = true;
+    setSavedJobIds(new Set());
+    setSavedJobsError(null);
+    if (user && !publicOnly) {
+      void listVerifiedSavedJobIds(user.id)
+        .then(ids => { if (active) setSavedJobIds(new Set(ids)); })
+        .catch(e => {
+          if (active) setSavedJobsError(e instanceof Error ? e.message : 'Unable to load saved jobs.');
+        });
     }
-  };
+    return () => { active = false; };
+  }, [user?.id, publicOnly]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    loadJobs();
+    setSubmittedSearch(search.trim());
+    setSearchVersion(version => version + 1);
   };
 
   const handleToggleSave = async (job: PublishedJob, e: React.MouseEvent) => {
@@ -89,13 +100,13 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
         return next;
       });
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : 'Unable to update saved job.');
+      setSavedJobsError(e instanceof Error ? e.message : 'Unable to update saved job.');
     }
   };
 
   const departments = ['All', 'Engineering', 'Product & Design', 'Data & AI', 'HR & People Ops'];
   const workplaceTypes = ['All', 'Hybrid', 'Remote', 'On-site'];
-  const employmentTypes = ['All', 'Full-time', 'Contract', 'Part-time'];
+  const employmentTypes = ['All', 'Full-time', 'Contract', 'Part-time', 'Internship'];
 
   // Format currency
   const formatSalary = (min?: number, max?: number, currency = 'BDT') => {
@@ -104,10 +115,10 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
       new Intl.NumberFormat('en-BD', { maximumFractionDigits: 0 }).format(num);
 
     if (min && max) {
-      return `${currency} ${formatNum(min)} – ${formatNum(max)} / mo`;
+      return `${currency} ${formatNum(min)} – ${formatNum(max)}`;
     }
-    if (min) return `From ${currency} ${formatNum(min)} / mo`;
-    if (max) return `Up to ${currency} ${formatNum(max)} / mo`;
+    if (min) return `From ${currency} ${formatNum(min)}`;
+    if (max) return `Up to ${currency} ${formatNum(max)}`;
     return null;
   };
 
@@ -122,9 +133,9 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {loadError && (
+      {(loadError || savedJobsError) && (
         <div role="alert" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <p className="border border-rose-200 bg-rose-50 text-rose-800 rounded-lg p-3 text-sm">{loadError}</p>
+          <p className="border border-rose-200 bg-rose-50 text-rose-800 rounded-lg p-3 text-sm">{loadError || savedJobsError}</p>
         </div>
       )}
       {/* Hero Section */}
@@ -293,6 +304,8 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
             <button
               onClick={() => {
                 setSearch('');
+                setSubmittedSearch('');
+                setSearchVersion(version => version + 1);
                 setDepartment('All');
                 setWorkplaceType('All');
                 setEmploymentType('All');
