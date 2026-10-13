@@ -152,12 +152,12 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span className="font-mono text-slate-600 font-semibold">{app.id}</span>
                         <span aria-hidden="true">·</span>
-                        <span>{app.job?.department || 'Department'}</span>
+                        <span>{app.job?.department || app.department || 'Department'}</span>
                         <span aria-hidden="true">·</span>
                         <span>Submitted {new Date(app.submitted_at).toLocaleDateString()}</span>
                       </div>
                       <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                        {app.job?.title || 'Applied Position'}
+                        {app.job?.title || app.job_title || 'Applied Position'}
                       </h2>
                     </div>
 

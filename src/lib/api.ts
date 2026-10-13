@@ -13,7 +13,8 @@ import {
   CandidateCV,
   SavedJob,
   JobAlert,
-  CandidateNotification
+  CandidateNotification,
+  CandidateStoredDocument
 } from '../types';
 import { INITIAL_PUBLISHED_JOBS } from './mockData';
 
@@ -229,7 +230,9 @@ function normalizePublishedJob(row: Record<string, any>): PublishedJob {
         : q.type === 'multi_select' ? 'multiselect' : 'text',
       required: q.required === true,
       options: Array.isArray(q.options) ? q.options : undefined,
-    }))
+    })),
+    required_documents: Array.isArray(row.required_documents)
+      ? row.required_documents.filter((item: unknown): item is string => typeof item === 'string') : []
   };
 }
 
@@ -404,6 +407,12 @@ export async function applyToJob(
     documents?: { name: string; url: string; type: string }[];
     consent_given: boolean;
     accuracy_certified: boolean;
+    full_name?: string;
+    phone?: string;
+    years_experience?: number;
+    skills?: string[];
+    document_ids?: string[];
+    required_document_map?: Record<string, string>;
   }
 ): Promise<{ success: boolean; application?: JobApplication; error?: string }> {
   // Validate consent
@@ -447,10 +456,14 @@ export async function applyToJob(
         p_job_id: jobId,
         p_payload: {
           selected_cv_id: payload.cv_id,
+          full_name: payload.full_name || null,
+          phone: payload.phone || null,
+          years_experience: payload.years_experience ?? null,
+          skills: payload.skills || null,
           answers: Object.entries(payload.screening_answers).map(([questionId, answer]) => ({ questionId, answer })),
           cover_letter: payload.cover_letter || null,
-          document_ids: [],
-          required_document_map: {},
+          document_ids: payload.document_ids || [],
+          required_document_map: payload.required_document_map || {},
           declarations: {
             accuracyCertified: payload.accuracy_certified,
             recruitmentDataConsent: payload.consent_given
@@ -1020,6 +1033,57 @@ export async function uploadCandidateCV(userId: string, cv: CandidateCV, file: F
   }
 }
 
+/** Upload and register a candidate-owned private supporting document. */
+export async function uploadCandidateApplicationDocument(
+  userId: string, title: string, file: File
+): Promise<CandidateStoredDocument> {
+  const sb = await authorizedCandidate(userId);
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle || normalizedTitle.length > 120) {
+    throw new Error('Document title must be between 1 and 120 characters.');
+  }
+  const ext = file.name.toLowerCase().split('.').pop();
+  const mimeByExtension: Record<string, string> = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  };
+  if (!ext || !mimeByExtension[ext]) throw new Error('Upload a PDF or Word document.');
+  if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+    throw new Error('Document must be between 1 byte and 10 MB.');
+  }
+
+  const path = `${userId}/application-documents/${crypto.randomUUID()}.${ext}`;
+  const contentType = mimeByExtension[ext];
+  const { error: uploadError } = await sb.storage.from('candidate-documents')
+    .upload(path, file, { upsert: false, contentType });
+  if (uploadError) throw new Error(uploadError.message);
+
+  try {
+    const { data, error } = await sb.rpc('candidate_add_application_document', {
+      p_title: normalizedTitle,
+      p_file_name: file.name,
+      p_file_path: path,
+      p_content_type: contentType
+    });
+    if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error(error?.message || 'Document metadata was not confirmed by HRMIS.');
+    }
+    const row = data as Record<string, unknown>;
+    return {
+      id: String(row.id || ''),
+      title: String(row.title || normalizedTitle),
+      fileName: String(row.fileName || file.name),
+      fileUrl: String(row.fileUrl || path),
+      contentType: String(row.contentType || contentType),
+      uploadedAt: String(row.uploadedAt || new Date().toISOString())
+    };
+  } catch (error) {
+    await sb.storage.from('candidate-documents').remove([path]);
+    throw error;
+  }
+}
+
 /** Signed links are short-lived and scoped by the user's storage policy. */
 export async function getCandidateCVDownloadUrl(userId: string, cv: CandidateCV): Promise<string> {
   const sb = await authorizedCandidate(userId);
@@ -1038,6 +1102,8 @@ export type VerifiedApplicationDraft = {
   cvId?: string;
   answers: Record<string, unknown>;
   coverLetter: string;
+  documentIds?: string[];
+  requiredDocumentMap?: Record<string, string>;
 };
 export async function loadVerifiedApplicationDraft(userId: string, jobId: string):
   Promise<VerifiedApplicationDraft | null> {
@@ -1053,7 +1119,11 @@ export async function loadVerifiedApplicationDraft(userId: string, jobId: string
     cvId: typeof draft?.cvId === 'string' ? draft.cvId : undefined,
     answers: draft?.answers && typeof draft.answers === 'object' && !Array.isArray(draft.answers)
       ? draft.answers as Record<string, unknown> : {},
-    coverLetter: typeof draft?.coverLetter === 'string' ? draft.coverLetter : ''
+    coverLetter: typeof draft?.coverLetter === 'string' ? draft.coverLetter : '',
+    documentIds: Array.isArray(draft?.documentIds)
+      ? draft.documentIds.filter((id): id is string => typeof id === 'string') : [],
+    requiredDocumentMap: draft?.requiredDocumentMap && typeof draft.requiredDocumentMap === 'object' && !Array.isArray(draft.requiredDocumentMap)
+      ? Object.fromEntries(Object.entries(draft.requiredDocumentMap).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {}
   };
 }
 export async function saveVerifiedApplicationDraft(userId: string, jobId: string,
@@ -1062,7 +1132,10 @@ export async function saveVerifiedApplicationDraft(userId: string, jobId: string
   const { error } = await sb.from('candidate_application_drafts').upsert({
     candidate_user_id: userId, job_id: jobId,
     current_step: Math.max(1, Math.min(4, Math.trunc(draft.step))),
-    draft_data: { cvId: draft.cvId || null, answers: draft.answers, coverLetter: draft.coverLetter }
+    draft_data: {
+      cvId: draft.cvId || null, answers: draft.answers, coverLetter: draft.coverLetter,
+      documentIds: draft.documentIds || [], requiredDocumentMap: draft.requiredDocumentMap || {}
+    }
   }, { onConflict: 'candidate_user_id,job_id' });
   if (error) throw new Error(error.message);
 }

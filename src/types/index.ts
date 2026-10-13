@@ -27,6 +27,7 @@ export interface PublishedJob {
   published_at: string;
   created_at: string;
   screening_questions?: ScreeningQuestion[];
+  required_documents?: string[];
 }
 
 export type ScreeningQuestionType = 'text' | 'yes_no' | 'select' | 'multiselect' | 'number';
@@ -61,6 +62,16 @@ export interface CandidateProfile {
   availability?: string;
   created_at: string;
   updated_at: string;
+  profile_data?: Record<string, unknown>;
+}
+
+export interface CandidateStoredDocument {
+  id: string;
+  title: string;
+  fileName: string;
+  fileUrl: string;
+  contentType: string;
+  uploadedAt: string;
 }
 
 export interface CandidateExperience {
@@ -117,6 +128,8 @@ export interface JobApplication {
   user_id: string;
   job_id: string;
   job?: PublishedJob;
+  job_title?: string;
+  department?: string;
   cv_id: string;
   cv_title?: string;
   status: ApplicationStatus;

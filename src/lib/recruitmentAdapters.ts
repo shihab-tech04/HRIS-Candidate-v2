@@ -1,4 +1,4 @@
-import type { JobOffer, InterviewInvitation, CandidateDocumentRequest } from '../types';
+import type { JobApplication, JobOffer, InterviewInvitation, CandidateDocumentRequest, ApplicationStatus } from '../types';
 
 /** Adapt the actual Supabase JSON DTO to the existing Careers UI.
  * No sample values, inferred compensation or public storage links.
@@ -77,6 +77,58 @@ export function adaptLiveDocumentRequest(row: Row): CandidateDocumentRequest {
     created_at: asText(row.created_at)
   };
 }
+function applicationStatus(row: Row): ApplicationStatus {
+  const raw = asText(row.status || row.stage).toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  const valid: ApplicationStatus[] = [
+    'draft','submitted','under_review','screening','interview_scheduled','assessment_pending',
+    'offer_extended','offer_accepted','offer_declined','withdrawn','rejected','hired'
+  ];
+  if (valid.includes(raw as ApplicationStatus)) return raw as ApplicationStatus;
+  if (raw.includes('withdraw')) return 'withdrawn';
+  if (raw.includes('reject')) return 'rejected';
+  if (raw.includes('hire')) return 'hired';
+  if (raw.includes('offer') && raw.includes('accept')) return 'offer_accepted';
+  if (raw.includes('offer') && raw.includes('declin')) return 'offer_declined';
+  if (raw.includes('offer')) return 'offer_extended';
+  if (raw.includes('assessment')) return 'assessment_pending';
+  if (raw.includes('interview')) return 'interview_scheduled';
+  if (raw.includes('screen')) return 'screening';
+  return 'submitted';
+}
+const visibleApplicationStatus: Record<ApplicationStatus, string> = {
+  draft: 'Draft', submitted: 'Application Submitted', under_review: 'Under Review',
+  screening: 'Screening in Progress', interview_scheduled: 'Interview Scheduled',
+  assessment_pending: 'Assessment Pending', offer_extended: 'Offer Extended',
+  offer_accepted: 'Offer Accepted', offer_declined: 'Offer Declined',
+  withdrawn: 'Withdrawn', rejected: 'Not Selected', hired: 'Hired'
+};
+export function adaptLiveApplication(row: Row): JobApplication {
+  const data = row.application_data && typeof row.application_data === 'object' && !Array.isArray(row.application_data)
+    ? row.application_data as Row : {};
+  const answers = asRows(data.answers);
+  const screeningAnswers = Object.fromEntries(answers.flatMap(answer =>
+    typeof answer.questionId === 'string' && Object.hasOwn(answer, 'answer')
+      ? [[answer.questionId, answer.answer]] : []
+  ));
+  const status = applicationStatus(row);
+  return {
+    id: asText(row.id),
+    user_id: asText(row.candidate_user_id),
+    job_id: asText(row.job_id),
+    job_title: asText(row.job_title) || 'Applied Position',
+    department: asText(row.department_name),
+    cv_id: asText(data.selected_cv_id),
+    cv_title: asText(data.cv_title) || undefined,
+    status,
+    candidate_visible_status: asText(row.candidate_visible_status) || visibleApplicationStatus[status],
+    stage_label: asText(row.stage_label || row.stage) || visibleApplicationStatus[status],
+    screening_answers: screeningAnswers,
+    cover_letter: asText(row.cover_letter) || undefined,
+    consent_given: (data.declarations as Row | undefined)?.recruitmentDataConsent === true,
+    submitted_at: asText(row.applied_at || row.submitted_at),
+    updated_at: asText(row.updated_at || row.applied_at || row.submitted_at),
+  };
+}
 export function adaptLiveRecruitmentContext(raw: unknown): Record<string, any> & {offers:JobOffer[];interviews:InterviewInvitation[];document_requests:CandidateDocumentRequest[]} {
   if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('Recruitment service returned an invalid response.');
@@ -84,6 +136,7 @@ export function adaptLiveRecruitmentContext(raw: unknown): Record<string, any> &
   const ctx = raw as Row;
   return {
     ...ctx,
+    applications: asRows(ctx.applications).map(adaptLiveApplication),
     offers: asRows(ctx.offers).map(adaptLiveOffer),
     interviews: asRows(ctx.interviews).map(adaptLiveInterview),
     document_requests: asRows(ctx.document_requests).map(adaptLiveDocumentRequest)
