@@ -15,6 +15,8 @@ interface AuthContextType {
   user: User | null;
   profile: CandidateProfile | null;
   loading: boolean;
+  profileLoading: boolean;
+  profileError: string | null;
   signIn: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
   signUp: (email: string, password?: string, fullName?: string) => Promise<{ success: boolean; error?: string; verificationRequired?: boolean }>;
   signOut: () => Promise<void>;
@@ -30,6 +32,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<CandidateProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   // Initialize auth
   useEffect(() => {
@@ -79,7 +83,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const checkLocalSession = () => {
-    if (!DEMO_MODE) { setUser(null); setProfile(null); return; }
+    if (!DEMO_MODE) {
+      setUser(null);
+      setProfile(null);
+      setProfileLoading(false);
+      setProfileError(null);
+      return;
+    }
     try {
       const stored = localStorage.getItem('synesis_candidate_auth_session');
       if (stored) {
@@ -89,20 +99,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setUser(null);
         setProfile(null);
+        setProfileLoading(false);
+        setProfileError(null);
       }
     } catch {
       setUser(null);
       setProfile(null);
+      setProfileLoading(false);
+      setProfileError('Unable to restore your candidate profile. Please retry.');
     }
   };
 
   const loadProfile = async (userId: string, _email: string, _name?: string) => {
+    setProfileLoading(true);
+    setProfileError(null);
     try {
       const verified = await getMyCandidateProfile(userId);
       setProfile(verified);
+      if (!verified) setProfileError('Your active candidate profile could not be found. Please retry or contact HR support.');
     } catch (error) {
       setProfile(null);
+      setProfileError(error instanceof Error ? error.message : 'Unable to load your candidate profile. Please retry.');
       console.warn('Unable to verify candidate profile', error);
+    } finally {
+      setProfileLoading(false);
     }
   };
 
@@ -252,6 +272,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         profile,
         loading,
+        profileLoading,
+        profileError,
         signIn,
         signUp,
         signOut,

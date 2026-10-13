@@ -24,7 +24,7 @@ interface ProfilePageProps {
 }
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, loading: authLoading, profileLoading, profileError } = useAuth();
   const [formData, setFormData] = useState<Partial<CandidateProfile>>({});
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -143,6 +143,38 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
     });
   };
 
+  if (authLoading || profileLoading) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-4 py-12" aria-busy="true" aria-live="polite">
+        <div className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 text-sm text-slate-600">
+          Loading your HRMIS profile…
+        </div>
+      </main>
+    );
+  }
+
+  if (!user || !profile) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-4 py-12">
+        <div className="mx-auto max-w-4xl rounded-2xl border border-rose-200 bg-white p-6 sm:p-8">
+          <h1 className="text-lg font-semibold text-slate-900">Unable to load your candidate profile</h1>
+          <p role="alert" className="mt-3 text-sm text-rose-700">
+            {profileError || 'Sign in with an active candidate account to view your profile.'}
+          </p>
+          {user && (
+            <button
+              type="button"
+              className="min-h-11 mt-4 rounded-lg border border-slate-300 px-4 font-medium text-slate-800 hover:bg-slate-50"
+              onClick={() => void refreshProfile()}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 py-10">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
@@ -161,6 +193,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
           </div>
 
           <button
+            type="button"
             onClick={handleSave}
             disabled={saving}
             className="py-2.5 px-6 bg-[#085587] text-white text-xs font-semibold rounded-xl hover:bg-[#074771] transition-colors shadow-xs flex items-center gap-2 self-start sm:self-auto disabled:opacity-50"
@@ -171,14 +204,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
         </div>
 
         {error && (
-          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+          <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         {saveSuccess && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+          <div role="status" aria-live="polite" className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>Profile successfully updated in Synesis HRMIS.</span>
           </div>
@@ -194,8 +227,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Full Legal Name *</label>
+                <label htmlFor="candidate-full-name" className="block font-semibold text-slate-700 mb-1">Full Legal Name *</label>
                 <input
+                  id="candidate-full-name"
                   type="text"
                   required
                   value={formData.full_name || ''}
@@ -205,8 +239,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Email Address *</label>
+                <label htmlFor="candidate-email" className="block font-semibold text-slate-700 mb-1">Email Address *</label>
                 <input
+                  id="candidate-email"
                   type="email"
                   disabled
                   value={formData.email || user?.email || ''}
@@ -215,8 +250,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Mobile Phone *</label>
+                <label htmlFor="candidate-phone" className="block font-semibold text-slate-700 mb-1">Mobile Phone *</label>
                 <input
+                  id="candidate-phone"
                   type="tel"
                   value={formData.phone || ''}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
@@ -226,8 +262,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Current Location *</label>
+                <label htmlFor="candidate-location" className="block font-semibold text-slate-700 mb-1">Current Location *</label>
                 <input
+                  id="candidate-location"
                   type="text"
                   value={formData.location || ''}
                   onChange={(e) => setFormData({ ...formData, location: e.target.value })}
@@ -237,10 +274,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block font-semibold text-slate-700 mb-1">
+                <label htmlFor="candidate-headline" className="block font-semibold text-slate-700 mb-1">
                   Professional Headline *
                 </label>
                 <input
+                  id="candidate-headline"
                   type="text"
                   value={formData.headline || ''}
                   onChange={(e) => setFormData({ ...formData, headline: e.target.value })}
@@ -250,10 +288,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block font-semibold text-slate-700 mb-1">
+                <label htmlFor="candidate-summary" className="block font-semibold text-slate-700 mb-1">
                   Professional Bio & Executive Summary
                 </label>
                 <textarea
+                  id="candidate-summary"
                   rows={3}
                   value={formData.summary || ''}
                   onChange={(e) => setFormData({ ...formData, summary: e.target.value })}
@@ -290,6 +329,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                       <button
                         type="button"
                         onClick={() => removeExperience(exp.id)}
+                        aria-label={`Remove experience ${exp.title || ''}`.trim()}
                         className="text-rose-600 hover:text-rose-700 p-1"
                         title="Remove experience"
                       >
@@ -299,8 +339,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                       <div>
-                        <label className="block text-slate-600 font-medium mb-1">Job Title</label>
+                        <label htmlFor={`experience-title-${exp.id}`} className="block text-slate-600 font-medium mb-1">Job Title</label>
                         <input
+                          id={`experience-title-${exp.id}`}
                           type="text"
                           value={exp.title}
                           onChange={(e) => updateExperience(exp.id, { title: e.target.value })}
@@ -308,8 +349,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-600 font-medium mb-1">Company / Organization</label>
+                        <label htmlFor={`experience-company-${exp.id}`} className="block text-slate-600 font-medium mb-1">Company / Organization</label>
                         <input
+                          id={`experience-company-${exp.id}`}
                           type="text"
                           value={exp.company}
                           onChange={(e) => updateExperience(exp.id, { company: e.target.value })}
@@ -317,8 +359,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-600 font-medium mb-1">Start Date</label>
+                        <label htmlFor={`experience-start-${exp.id}`} className="block text-slate-600 font-medium mb-1">Start Date</label>
                         <input
+                          id={`experience-start-${exp.id}`}
                           type="text"
                           value={exp.start_date}
                           onChange={(e) => updateExperience(exp.id, { start_date: e.target.value })}
@@ -327,8 +370,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-600 font-medium mb-1">End Date</label>
+                        <label htmlFor={`experience-end-${exp.id}`} className="block text-slate-600 font-medium mb-1">End Date</label>
                         <input
+                          id={`experience-end-${exp.id}`}
                           type="text"
                           disabled={exp.current}
                           value={exp.current ? 'Present' : exp.end_date || ''}
@@ -338,8 +382,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                         />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-slate-600 font-medium mb-1">Key Responsibilities & Tech Stack</label>
+                        <label htmlFor={`experience-description-${exp.id}`} className="block text-slate-600 font-medium mb-1">Key Responsibilities & Tech Stack</label>
                         <textarea
+                          id={`experience-description-${exp.id}`}
                           rows={2}
                           value={exp.description}
                           onChange={(e) => updateExperience(exp.id, { description: e.target.value })}
@@ -379,6 +424,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                       <button
                         type="button"
                         onClick={() => removeEducation(edu.id)}
+                        aria-label={`Remove education ${edu.institution || ''}`.trim()}
                         className="text-rose-600 hover:text-rose-700 p-1"
                         title="Remove education"
                       >
@@ -388,8 +434,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                       <div>
-                        <label className="block text-slate-600 font-medium mb-1">Institution</label>
+                        <label htmlFor={`education-institution-${edu.id}`} className="block text-slate-600 font-medium mb-1">Institution</label>
                         <input
+                          id={`education-institution-${edu.id}`}
                           type="text"
                           value={edu.institution}
                           onChange={(e) => updateEducation(edu.id, { institution: e.target.value })}
@@ -397,8 +444,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-600 font-medium mb-1">Degree</label>
+                        <label htmlFor={`education-degree-${edu.id}`} className="block text-slate-600 font-medium mb-1">Degree</label>
                         <input
+                          id={`education-degree-${edu.id}`}
                           type="text"
                           value={edu.degree}
                           onChange={(e) => updateEducation(edu.id, { degree: e.target.value })}
@@ -406,8 +454,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-600 font-medium mb-1">Field of Study</label>
+                        <label htmlFor={`education-field-${edu.id}`} className="block text-slate-600 font-medium mb-1">Field of Study</label>
                         <input
+                          id={`education-field-${edu.id}`}
                           type="text"
                           value={edu.field_of_study}
                           onChange={(e) => updateEducation(edu.id, { field_of_study: e.target.value })}
@@ -418,6 +467,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                         <label className="block text-slate-600 font-medium mb-1">Years (Start - End)</label>
                         <div className="flex gap-2">
                           <input
+                            aria-label={`Start year for ${edu.institution || 'education'}`}
                             type="text"
                             placeholder="Start"
                             value={edu.start_year}
@@ -425,6 +475,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                             className="w-1/2 px-2.5 py-1.5 bg-white border border-slate-300 rounded-md"
                           />
                           <input
+                            aria-label={`End year for ${edu.institution || 'education'}`}
                             type="text"
                             placeholder="End"
                             value={edu.end_year || ''}
@@ -456,6 +507,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                     <button
                       type="button"
                       onClick={() => removeSkill(skill)}
+                      aria-label={`Remove skill ${skill}`}
                       className="text-slate-400 hover:text-rose-600"
                     >
                       ×
@@ -465,6 +517,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
               <div className="flex gap-2 max-w-sm">
                 <input
+                  aria-label="Add a skill"
                   type="text"
                   value={newSkill}
                   onChange={(e) => setNewSkill(e.target.value)}
@@ -495,6 +548,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                     <button
                       type="button"
                       onClick={() => removeCert(cert)}
+                      aria-label={`Remove certification ${cert}`}
                       className="text-sky-400 hover:text-rose-600"
                     >
                       ×
@@ -504,6 +558,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
               <div className="flex gap-2 max-w-sm">
                 <input
+                  aria-label="Add a certification"
                   type="text"
                   value={newCert}
                   onChange={(e) => setNewCert(e.target.value)}
@@ -528,8 +583,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">LinkedIn Profile</label>
+                <label htmlFor="candidate-linkedin" className="block font-semibold text-slate-700 mb-1">LinkedIn Profile</label>
                 <input
+                  id="candidate-linkedin"
                   type="url"
                   value={formData.linkedin_url || ''}
                   onChange={(e) => setFormData({ ...formData, linkedin_url: e.target.value })}
@@ -539,8 +595,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">GitHub Profile</label>
+                <label htmlFor="candidate-github" className="block font-semibold text-slate-700 mb-1">GitHub Profile</label>
                 <input
+                  id="candidate-github"
                   type="url"
                   value={formData.github_url || ''}
                   onChange={(e) => setFormData({ ...formData, github_url: e.target.value })}
@@ -550,8 +607,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Portfolio Website</label>
+                <label htmlFor="candidate-portfolio" className="block font-semibold text-slate-700 mb-1">Portfolio Website</label>
                 <input
+                  id="candidate-portfolio"
                   type="url"
                   value={formData.portfolio_url || ''}
                   onChange={(e) => setFormData({ ...formData, portfolio_url: e.target.value })}

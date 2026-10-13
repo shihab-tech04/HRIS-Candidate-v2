@@ -1,5 +1,6 @@
 import { getSupabaseClient } from './supabase';
 import { adaptLiveRecruitmentContext } from './recruitmentAdapters';
+import { adaptLiveCandidateProfile, toCandidateProfileRpcPayload } from './candidateProfileAdapters';
 import {
   PublishedJob,
   CandidateProfile,
@@ -291,7 +292,7 @@ export async function getMyCandidateProfile(userId: string): Promise<CandidatePr
     try {
       const { data, error } = await supabase.rpc('get_my_candidate_profile');
       if (!error && data) {
-        return data as CandidateProfile;
+        return adaptLiveCandidateProfile(data);
       }
     } catch (e) {
       console.warn('Supabase get_my_candidate_profile error', e);
@@ -311,10 +312,10 @@ export async function updateCandidateProfile(
   if (supabase) {
     try {
       const { data, error } = await supabase.rpc('candidate_update_profile', {
-        p_payload: payload
+        p_payload: toCandidateProfileRpcPayload(payload)
       });
       if (!error && data) {
-        return data as CandidateProfile;
+        return adaptLiveCandidateProfile(data);
       }
     } catch (e) {
       console.warn('Supabase candidate_update_profile error, updating local storage', e);
