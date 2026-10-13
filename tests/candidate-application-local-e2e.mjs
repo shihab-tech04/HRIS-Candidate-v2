@@ -87,7 +87,7 @@ async function cleanupTestUser(userId) {
   if (applications.error) throw applications.error;
   const applicationIds = applications.data.map(row => row.id);
   if (applicationIds.length) {
-    for (const table of ['onboarding_handoffs', 'job_offers', 'interviews', 'candidate_application_stage_history']) {
+    for (const table of ['onboarding_handoffs', 'job_offers', 'interviews', 'candidate_assessments', 'candidate_application_stage_history']) {
       const deleted = await admin.from(table).delete().in('application_id', applicationIds);
       if (deleted.error) throw deleted.error;
     }
@@ -125,6 +125,13 @@ async function cleanupStaleTestJobs() {
     || (row.title === 'Other Tenant Role' && /^C1-X-[0-9a-f]{8}$/i.test(row.reference_number || ''))
   ).map(row => row.id);
   if (ids.length) {
+    const applications = await admin.from('job_applications').select('id').in('job_id', ids);
+    if (applications.error) throw applications.error;
+    const applicationIds = applications.data.map(row => row.id);
+    if (applicationIds.length) {
+      const assessments = await admin.from('candidate_assessments').delete().in('application_id', applicationIds);
+      if (assessments.error) throw assessments.error;
+    }
     const apps = await admin.from('job_applications').delete().in('job_id', ids);
     if (apps.error) throw apps.error;
     const published = await admin.from('candidate_published_jobs').delete().in('id', ids);
@@ -144,6 +151,7 @@ const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013190200_hris_candidate_preboarding_workflow.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013052128_hris_candidate_c1_revoke_direct_table_access.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013221500_hris_candidate_interview_journey.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261013170556_hris_candidate_assessment_journey.sql'),
 ];
 for (const migration of migrationPaths) readFileSync(migration, 'utf8');
 
@@ -159,6 +167,7 @@ const cleanUsers = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
 if (cleanUsers.error || cleanUsers.data.users.length !== 0) throw cleanUsers.error || new Error('Local Auth did not return to an empty state.');
 
 try {
+  psql(readFileSync(path.join(mainRoot, 'tests/sql/candidate-c1/cleanup-fixture.sql'), 'utf8'));
   psql(readFileSync(path.join(mainRoot, 'tests/sql/candidate-c1/tenant-fixture.sql'), 'utf8'));
   psql(readFileSync(path.join(candidateRoot, 'tests/candidate-application-local-fixture.sql'), 'utf8'));
   for (const migration of migrationPaths) psql(readFileSync(migration, 'utf8'));
@@ -418,7 +427,7 @@ try {
   await mobile.close();
 
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  const page = await desktop.newPage();
+  let page = await desktop.newPage();
   page.on('pageerror', error => browserErrors.push(error.message));
   await page.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
     storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
@@ -474,6 +483,14 @@ try {
     p_response_deadline: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
     p_terms: 'Role: Senior Systems Engineer\nOffer source: employer-entered local acceptance terms.',
   };
+  const assessmentArguments = {
+    p_tenant_id: tenantA,
+    p_application_id: application.id,
+    p_title: 'Systems Design Exercise',
+    p_assessment_type: 'Technical',
+    p_instructions: 'Describe the system design and submit your implementation notes or repository link.',
+    p_deadline_date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+  };
   const interviewArguments = {
     p_tenant_id: tenantA,
     p_application_id: application.id,
@@ -504,16 +521,34 @@ try {
     salary_amount: 1, salary_currency: 'BDT', status: 'issued',
   });
   assert(directOfferWrite.error?.code === '42501', 'Recruitment manager bypassed the offer issue RPC through direct table access.');
+  const viewerAssessmentAssignment = await staff[1].client.rpc('hris_assign_candidate_assessment', assessmentArguments);
+  assert(viewerAssessmentAssignment.error?.code === '42501', 'Recruitment viewer assigned a candidate assessment.');
+  const foreignTenantAssessmentAssignment = await staff[2].client.rpc('hris_assign_candidate_assessment', assessmentArguments);
+  assert(foreignTenantAssessmentAssignment.error?.code === '42501', 'Tenant B manager assigned an assessment to Tenant A.');
+  const candidateAssessmentAssignment = await users[0].client.rpc('hris_assign_candidate_assessment', assessmentArguments);
+  assert(candidateAssessmentAssignment.error?.code === '42501', 'Candidate was allowed to issue a recruiter assessment.');
+  const anonymousAssessmentAssignment = await anon.rpc('hris_assign_candidate_assessment', assessmentArguments);
+  assert(anonymousAssessmentAssignment.error?.code === '42501', 'Anonymous caller assigned a candidate assessment.');
+  const invalidAssessment = await staff[0].client.rpc('hris_assign_candidate_assessment', {
+    ...assessmentArguments, p_title: ' ', p_deadline_date: '2000-01-01',
+  });
+  assert(invalidAssessment.error?.code === '22023', 'Backend accepted invalid candidate assessment details.');
+  const viewerAssessmentQueue = await staff[1].client.rpc('hris_get_candidate_assessments', { p_tenant_id: tenantA });
+  assert(viewerAssessmentQueue.error?.code === '42501', 'Recruitment viewer read candidate assessment submissions.');
+  const foreignAssessmentQueue = await staff[2].client.rpc('hris_get_candidate_assessments', { p_tenant_id: tenantA });
+  assert(foreignAssessmentQueue.error?.code === '42501', 'Tenant B manager read Tenant A candidate assessments.');
 
   const mainManager = await browser.newContext({ viewport: { width: 375, height: 812 } });
   const mainManagerPage = await mainManager.newPage();
   mainManagerPage.on('pageerror', error => browserErrors.push(error.message));
   const mainDiagnostics = [];
   const offerIssueResponses = [];
+  const assessmentAssignmentResponses = [];
   mainManagerPage.on('console', message => { if (message.type() === 'error') mainDiagnostics.push(message.text()); });
   mainManagerPage.on('response', async response => {
     if (response.status() >= 400) mainDiagnostics.push(`${response.status()} ${response.url()}`);
     if (response.url().includes('hris_issue_candidate_offer')) offerIssueResponses.push({ status: response.status(), body: (await response.text()).slice(0, 1000) });
+    if (response.url().includes('hris_assign_candidate_assessment')) assessmentAssignmentResponses.push({ status: response.status(), body: (await response.text()).slice(0, 1000) });
   });
   await mainManagerPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
     storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: staff[0].session,
@@ -522,6 +557,117 @@ try {
   try { await mainManagerPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 10000 }); }
   catch { throw new Error(`Main HR manager UI did not reach recruitment. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2400)} diagnostics=${mainDiagnostics.join(';') || browserErrors.join(';') || 'none'}`); }
   await mainManagerPage.getByRole('heading', { name: 'Applications' }).waitFor();
+  const candidateApplicationRow = mainManagerPage.getByRole('listitem').filter({ hasText: 'Candidate A Application Name' }).first();
+  await candidateApplicationRow.getByText('Assign assessment', { exact: true }).click();
+  assert(await candidateApplicationRow.locator('form').last().evaluate(form => !form.checkValidity()), 'Assessment assignment form did not require title, type, instructions, and due date.');
+  await candidateApplicationRow.getByLabel('Assessment title for Candidate A Application Name').fill(assessmentArguments.p_title);
+  await candidateApplicationRow.getByLabel('Assessment type for Candidate A Application Name').fill(assessmentArguments.p_assessment_type);
+  await candidateApplicationRow.getByLabel('Assessment instructions for Candidate A Application Name').fill(assessmentArguments.p_instructions);
+  await candidateApplicationRow.getByLabel('Assessment due date for Candidate A Application Name').fill(assessmentArguments.p_deadline_date);
+  await candidateApplicationRow.getByRole('button', { name: 'Assign to candidate' }).click();
+  try { await candidateApplicationRow.getByRole('status').filter({ hasText: 'Assessment assigned to Candidate A Application Name.' }).waitFor({ timeout: 20000 }); }
+  catch { throw new Error(`Assessment assignment did not complete. Row=${(await candidateApplicationRow.innerText()).slice(0, 1500)} response=${JSON.stringify(assessmentAssignmentResponses)} diagnostics=${mainDiagnostics.join(';') || browserErrors.join(';') || 'none'}`); }
+  const assignedAssessment = await admin.from('candidate_assessments').select('id,application_id,title,assessment_type,instructions,deadline_date,status,created_by').eq('application_id', application.id).single();
+  assert(!assignedAssessment.error && assignedAssessment.data.title === assessmentArguments.p_title
+    && assignedAssessment.data.assessment_type === assessmentArguments.p_assessment_type
+    && assignedAssessment.data.deadline_date === assessmentArguments.p_deadline_date
+    && assignedAssessment.data.status === 'pending' && assignedAssessment.data.created_by === staff[0].id,
+  `Recruiter assessment did not persist with entered values: ${JSON.stringify(assignedAssessment.error || assignedAssessment.data)}`);
+  const managerAssessmentRead = await staff[0].client.from('candidate_assessments').select('id').eq('id', assignedAssessment.data.id);
+  assert(managerAssessmentRead.error?.code === '42501', 'Recruiter bypassed the tenant assessment queue with a direct table read.');
+  const candidateAssessmentRead = await users[0].client.from('candidate_assessments').select('id').eq('id', assignedAssessment.data.id);
+  assert(candidateAssessmentRead.error?.code === '42501', 'Candidate bypassed the owner-scoped assessment context with a direct table read.');
+  const candidateBContext = await users[1].client.rpc('candidate_get_recruitment_context');
+  assert(!candidateBContext.error && (candidateBContext.data.assessments || []).length === 0, 'Candidate B received a Tenant A assessment in their owner-scoped context.');
+  const candidateBCrossSubmit = await users[1].client.rpc('candidate_submit_assessment', {
+    p_assessment_id: assignedAssessment.data.id, p_payload: { submission_text: 'cross-tenant attempt' },
+  });
+  assert(candidateBCrossSubmit.error?.code === 'P0002', 'Candidate B submitted Candidate A’s assessment.');
+  const insecureCandidateSubmission = await users[0].client.rpc('candidate_submit_assessment', {
+    p_assessment_id: assignedAssessment.data.id, p_payload: { submission_text: 'work', file_url: 'javascript:alert(1)' },
+  });
+  assert(insecureCandidateSubmission.error?.code === '22023', 'Candidate assessment RPC accepted a non-HTTPS submission link.');
+  const ownerReviewAttempt = await users[0].client.rpc('hris_review_candidate_assessment', {
+    p_tenant_id: tenantA, p_assessment_id: assignedAssessment.data.id, p_review_note: null,
+  });
+  assert(ownerReviewAttempt.error?.code === '42501', 'Candidate marked their own assessment as reviewed.');
+  const viewerReviewAttempt = await staff[1].client.rpc('hris_review_candidate_assessment', {
+    p_tenant_id: tenantA, p_assessment_id: assignedAssessment.data.id, p_review_note: null,
+  });
+  assert(viewerReviewAttempt.error?.code === '42501', 'Recruitment viewer marked a candidate assessment reviewed.');
+  const foreignReviewAttempt = await staff[2].client.rpc('hris_review_candidate_assessment', {
+    p_tenant_id: tenantA, p_assessment_id: assignedAssessment.data.id, p_review_note: null,
+  });
+  assert(foreignReviewAttempt.error?.code === '42501', 'Tenant B manager reviewed a Tenant A assessment.');
+  const candidateAssessmentContext = await users[0].client.rpc('candidate_get_recruitment_context');
+  assert(!candidateAssessmentContext.error && candidateAssessmentContext.data.assessments.length === 1
+    && candidateAssessmentContext.data.assessments[0].id === assignedAssessment.data.id
+    && !Object.hasOwn(candidateAssessmentContext.data.assessments[0], 'review_note')
+    && !Object.hasOwn(candidateAssessmentContext.data.assessments[0], 'reviewed_by')
+    && !Object.hasOwn(candidateAssessmentContext.data.assessments[0], 'created_by'),
+  'Candidate assessment context did not return only the candidate-owned assignment and public fields.');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(`http://127.0.0.1:${webPort}/?view=tasks`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Assessments & Document Requests' }).waitFor({ timeout: 20000 });
+  await page.getByRole('heading', { name: assessmentArguments.p_title }).waitFor({ timeout: 20000 });
+  await page.getByText(/Describe the system design and submit your implementation notes or repository link/).waitFor();
+  const candidateAssessmentHeader = page.getByRole('heading', { name: assessmentArguments.p_title }).locator('xpath=..');
+  const candidateAssessmentHeaderText = await candidateAssessmentHeader.innerText();
+  assert(candidateAssessmentHeaderText.includes('Technical'), `Candidate assessment type was not adapted from the persisted row. Header=${candidateAssessmentHeaderText}`);
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile candidate assessment task overflows the viewport.');
+  await page.getByRole('button', { name: 'Submit Assessment Work' }).click();
+  await page.getByRole('heading', { name: `Submit Assessment: ${assessmentArguments.p_title}` }).waitFor();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert(await page.getByRole('heading', { name: `Submit Assessment: ${assessmentArguments.p_title}` }).count() === 0, 'Candidate could not cancel assessment submission.');
+  await page.getByRole('button', { name: 'Submit Assessment Work' }).click();
+  await page.getByRole('button', { name: 'Submit to Synesis Committee' }).click();
+  assert((await page.getByRole('alert').innerText()).includes('Please provide written submission notes'), 'Assessment submission accepted an empty response or did not show validation.');
+  await page.getByPlaceholder(/Provide architecture choices/).fill('I compared a normalized relational model with a small event stream and documented the trade-offs.');
+  await page.getByPlaceholder('https://github.com/your-username/assessment-solution').fill('https://github.com/candidate/systems-design-exercise');
+  await page.getByRole('button', { name: 'Submit to Synesis Committee' }).click();
+  await page.getByText('Submitted for Review', { exact: true }).waitFor({ timeout: 20000 });
+  assert(await page.getByText(/normalized relational model with a small event stream/).count() === 1,
+    'Candidate submission work was not visible after persistence.');
+  const persistedCandidateAssessment = await admin.from('candidate_assessments').select('status,submission_data,submitted_at').eq('id', assignedAssessment.data.id).single();
+  assert(!persistedCandidateAssessment.error && persistedCandidateAssessment.data.status === 'submitted'
+    && persistedCandidateAssessment.data.submission_data.file_url === 'https://github.com/candidate/systems-design-exercise'
+    && persistedCandidateAssessment.data.submitted_at,
+  `Candidate assessment work did not persist: ${JSON.stringify(persistedCandidateAssessment.error || persistedCandidateAssessment.data)}`);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: assessmentArguments.p_title }).waitFor({ timeout: 20000 });
+  await page.getByText('Submitted for Review', { exact: true }).waitFor();
+  const tenantAAssessmentQueue = await staff[0].client.rpc('hris_get_candidate_assessments', { p_tenant_id: tenantA });
+  assert(!tenantAAssessmentQueue.error && tenantAAssessmentQueue.data.length === 1
+    && tenantAAssessmentQueue.data[0].id === assignedAssessment.data.id
+    && tenantAAssessmentQueue.data[0].submission_data.submission_text.includes('normalized relational model'),
+  'Tenant A manager did not receive the submitted assessment in the authorized review queue.');
+  await mainManagerPage.getByRole('heading', { name: 'Candidate assessments' }).waitFor({ timeout: 20000 });
+  const assessmentQueueSection = mainManagerPage.locator('section[aria-labelledby="candidate-assessments-heading"]');
+  await assessmentQueueSection.getByRole('button', { name: 'Refresh candidate assessments' }).click();
+  await assessmentQueueSection.getByText('Submitted for review', { exact: true }).waitFor({ timeout: 20000 });
+  await assessmentQueueSection.getByText(assessmentArguments.p_title, { exact: true }).waitFor({ timeout: 20000 });
+  await assessmentQueueSection.getByText(/normalized relational model/).waitFor();
+  await assessmentQueueSection.getByRole('link', { name: 'systems-design-exercise' }).waitFor();
+  await assessmentQueueSection.getByRole('button', { name: 'Mark review complete' }).click();
+  await assessmentQueueSection.getByText('Review complete', { exact: true }).waitFor({ timeout: 20000 });
+  const reviewedAssessment = await admin.from('candidate_assessments').select('status,reviewed_by,reviewed_at,review_note').eq('id', assignedAssessment.data.id).single();
+  assert(!reviewedAssessment.error && reviewedAssessment.data.status === 'reviewed'
+    && reviewedAssessment.data.reviewed_by === staff[0].id && reviewedAssessment.data.reviewed_at && reviewedAssessment.data.review_note === null,
+  `Recruiter review state did not persist without inventing a score or note: ${JSON.stringify(reviewedAssessment.error || reviewedAssessment.data)}`);
+  const duplicateReview = await staff[0].client.rpc('hris_review_candidate_assessment', {
+    p_tenant_id: tenantA, p_assessment_id: assignedAssessment.data.id, p_review_note: null,
+  });
+  assert(duplicateReview.error?.code === 'P0002', 'A second review overwrote the completed assessment review.');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: assessmentArguments.p_title }).waitFor({ timeout: 20000 });
+  await page.getByText('Review Complete', { exact: true }).waitFor();
+  const reviewedCandidateContext = await users[0].client.rpc('candidate_get_recruitment_context');
+  const candidateReviewRecord = reviewedCandidateContext.data?.assessments?.[0];
+  assert(!reviewedCandidateContext.error && candidateReviewRecord?.status === 'reviewed'
+    && candidateReviewRecord.reviewed_at === reviewedAssessment.data.reviewed_at
+    && !Object.hasOwn(candidateReviewRecord, 'review_note') && !Object.hasOwn(candidateReviewRecord, 'reviewed_by'),
+  'Candidate did not recover the review completion state or received private review metadata.');
   await mainManagerPage.getByText('Schedule interview', { exact: true }).click();
   assert(await mainManagerPage.locator('form').last().evaluate(form => !form.checkValidity()), 'Interview schedule form did not require its round, date, and duration.');
   await mainManagerPage.getByLabel('Interview round').fill(interviewArguments.p_round_name);
@@ -569,11 +715,17 @@ try {
   const managerDirectInterviewRead = await staff[0].client.from('interviews').select('id').eq('id', scheduledInterview.data.id);
   assert(managerDirectInterviewRead.error?.code === '42501', 'Recruiter bypassed the tenant response RPC with a direct table read.');
 
+  await page.close();
+  page = await desktop.newPage();
+  page.on('pageerror', error => browserErrors.push(error.message));
+  await page.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
+  });
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(`http://127.0.0.1:${webPort}/?view=interviews`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
   await page.getByText('Technical Systems Interview', { exact: false }).waitFor();
-  assert(await page.getByText('Video Call', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview format. UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
+  assert(await page.getByText('Video Call', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview format. URL=${page.url()} errors=${browserErrors.join(';') || 'none'} UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
   assert(await page.getByText('Panel Member One, Panel Member Two', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview panel. UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
   assert(await page.getByText('Asia/Dhaka', { exact: false }).count() > 0, 'Candidate interview time did not disclose the organization time zone.');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile candidate interview page overflows the viewport.');
@@ -796,13 +948,15 @@ try {
   await viewOnlyPage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
   await viewOnlyPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 20000 });
   assert(await viewOnlyPage.getByText('Issue offer', { exact: true }).count() === 0, 'Recruitment view-only UI exposed the offer issue action.');
+  assert(await viewOnlyPage.getByText('Assign assessment', { exact: true }).count() === 0, 'Recruitment view-only UI exposed assessment assignment.');
+  assert(await viewOnlyPage.getByRole('heading', { name: 'Candidate assessments' }).count() === 0, 'Recruitment view-only UI exposed candidate assessment submissions.');
   assert(await viewOnlyPage.getByRole('heading', { name: 'Preboarding handoffs' }).count() === 0, 'Recruitment view-only UI exposed the private preboarding queue.');
   await viewOnlyContext.close();
   await mainManager.close();
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) {

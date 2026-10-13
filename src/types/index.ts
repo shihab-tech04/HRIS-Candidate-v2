@@ -190,6 +190,7 @@ export interface CandidateAssessment {
     file_name?: string;
     submitted_at: string;
   };
+  reviewed_at?: string;
   created_at: string;
 }
 

@@ -1,4 +1,4 @@
-import type { JobApplication, JobOffer, InterviewInvitation, CandidateDocumentRequest, ApplicationStatus, OnboardingHandoff } from '../types';
+import type { JobApplication, JobOffer, InterviewInvitation, CandidateAssessment, CandidateDocumentRequest, ApplicationStatus, OnboardingHandoff } from '../types';
 
 /** Adapt the actual Supabase JSON DTO to the existing Careers UI.
  * No sample values, inferred compensation or public storage links.
@@ -81,6 +81,30 @@ export function adaptLiveDocumentRequest(row: Row): CandidateDocumentRequest {
     submitted_file_name: asText(row.submitted_file_name),
     submitted_at: asText(row.submitted_at),
     created_at: asText(row.created_at)
+  };
+}
+export function adaptLiveAssessment(row: Row): CandidateAssessment {
+  const submission = row.submission_data && typeof row.submission_data === 'object' && !Array.isArray(row.submission_data)
+    ? row.submission_data as Row : null;
+  const rawStatus = asText(row.status);
+  const status: CandidateAssessment['status'] = rawStatus === 'submitted' || rawStatus === 'reviewed' ? rawStatus : 'pending';
+  return {
+    id: asText(row.id),
+    application_id: asText(row.application_id),
+    job_title: asText(row.job_title),
+    title: asText(row.title),
+    description: asText(row.assessment_type),
+    due_date: asText(row.deadline_date ?? row.due_date),
+    status,
+    instructions: asText(row.instructions),
+    candidate_response: submission ? {
+      submission_text: asText(submission.submission_text) || undefined,
+      file_url: asText(submission.file_url) || undefined,
+      file_name: asText(submission.file_name) || undefined,
+      submitted_at: asText(row.submitted_at ?? submission.submitted_at),
+    } : undefined,
+    reviewed_at: asText(row.reviewed_at) || undefined,
+    created_at: asText(row.created_at),
   };
 }
 export function adaptLiveOnboardingHandoff(raw: unknown): OnboardingHandoff {
@@ -173,6 +197,7 @@ export function adaptLiveRecruitmentContext(raw: unknown): Record<string, any> &
     applications: asRows(ctx.applications).map(adaptLiveApplication),
     offers: asRows(ctx.offers).map(adaptLiveOffer),
     interviews: asRows(ctx.interviews).map(adaptLiveInterview),
+    assessments: asRows(ctx.assessments).map(adaptLiveAssessment),
     document_requests: asRows(ctx.document_requests).map(adaptLiveDocumentRequest)
   };
 }

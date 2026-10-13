@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { adaptLiveCandidateProfile, toCandidateProfileRpcPayload } from '../src/lib/candidateProfileAdapters.ts';
+import { adaptLiveAssessment, adaptLiveRecruitmentContext } from '../src/lib/recruitmentAdapters.ts';
 
 test('live candidate profile DTO maps HRIS columns and profile data to the existing form', () => {
   const profile = adaptLiveCandidateProfile({
@@ -48,4 +49,26 @@ test('profile form payload maps writable UI fields and preserves opaque HRIS pro
   assert.equal(Object.hasOwn(payload, 'tenant_id'), false);
   assert.equal(Object.hasOwn(payload, 'email'), false);
   assert.equal(Object.hasOwn(payload, 'user_id'), false);
+});
+
+test('candidate assessment DTO maps database submission and review state without reviewer-private fields', () => {
+  const row = {
+    id: 'assessment-1', application_id: 'application-1', job_title: 'Systems Engineer',
+    title: 'Systems Design Exercise', assessment_type: 'Technical', instructions: 'Submit notes.',
+    deadline_date: '2026-10-20', status: 'reviewed', created_at: '2026-10-13T10:00:00Z',
+    submitted_at: '2026-10-14T10:00:00Z', reviewed_at: '2026-10-15T10:00:00Z',
+    submission_data: { submission_text: 'Design summary', file_url: 'https://example.test/work', file_name: 'work' },
+    review_note: 'Must not be returned to the candidate.', reviewed_by: 'recruiter-id', created_by: 'recruiter-id',
+  };
+  const assessment = adaptLiveAssessment(row);
+  assert.equal(assessment.due_date, '2026-10-20');
+  assert.equal(assessment.description, 'Technical');
+  assert.equal(assessment.status, 'reviewed');
+  assert.equal(assessment.candidate_response?.submission_text, 'Design summary');
+  assert.equal(assessment.candidate_response?.file_url, 'https://example.test/work');
+  assert.equal(assessment.reviewed_at, row.reviewed_at);
+  const context = adaptLiveRecruitmentContext({ assessments: [row], applications: [], interviews: [], offers: [], document_requests: [] });
+  assert.equal(context.assessments[0].id, 'assessment-1');
+  assert.equal(Object.hasOwn(context.assessments[0], 'review_note'), false);
+  assert.equal(Object.hasOwn(context.assessments[0], 'reviewed_by'), false);
 });
