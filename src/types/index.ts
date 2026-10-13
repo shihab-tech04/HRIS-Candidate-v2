@@ -226,12 +226,10 @@ export interface JobOffer {
 
 export interface OnboardingHandoff {
   id: string;
-  offer_id: string;
   application_id: string;
-  user_id: string;
-  status: 'pending_candidate_info' | 'submitted_for_verification' | 'verified_by_hr' | 'joining_confirmed';
-  completed_steps: string[];
-  personal_data: {
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  candidate_completed_steps: string[];
+  candidate_personal_data: {
     national_id?: string;
     passport_number?: string;
     date_of_birth?: string;
@@ -245,9 +243,7 @@ export interface OnboardingHandoff {
     tax_identification_number?: string;
     policies_accepted?: boolean;
   };
-  hr_verification_notes?: string;
-  joining_date?: string;
-  employee_id?: string;
+  candidate_submitted_at?: string | null;
   created_at: string;
   updated_at: string;
 }

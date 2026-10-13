@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { OnboardingHandoff, JobOffer } from '../types';
-import { getRecruitmentContext, updateOnboardingHandoff } from '../lib/api';
+import { getMyPreboardingHandoff, getRecruitmentContext, updateOnboardingHandoff } from '../lib/api';
 import {
   UserCheck,
   ShieldCheck,
@@ -21,69 +21,82 @@ interface PreboardingPageProps {
   onNavigate: (tab: string) => void;
 }
 
+const EMPTY_PREBOARDING_FORM = {
+  national_id: '', passport_number: '', date_of_birth: '', nationality: '', address: '',
+  emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relation: '',
+  bank_name: '', bank_account_number: '', tax_identification_number: '', policies_accepted: false,
+};
+
 export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) => {
   const { user, profile } = useAuth();
+  const userIdRef = useRef(user?.id);
+  userIdRef.current = user?.id;
   const [handoff, setHandoff] = useState<OnboardingHandoff | null>(null);
   const [activeOffer, setActiveOffer] = useState<JobOffer | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const loadSequence = useRef(0);
 
   // Stepper: 1: Legal Identity, 2: Emergency Contact, 3: Banking & Tax, 4: Policy Acknowledgment
   const [activeStep, setActiveStep] = useState<number>(1);
 
   // Form Fields
-  const [formData, setFormData] = useState({
-    national_id: '',
-    passport_number: '',
-    date_of_birth: '',
-    nationality: '',
-    address: '',
-    emergency_contact_name: '',
-    emergency_contact_phone: '',
-    emergency_contact_relation: '',
-    bank_name: '',
-    bank_account_number: '',
-    tax_identification_number: '',
-    policies_accepted: false
-  });
+  const [formData, setFormData] = useState(EMPTY_PREBOARDING_FORM);
 
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
-  }, [user]);
+    setFormData(EMPTY_PREBOARDING_FORM);
+    void loadData();
+  }, [user?.id]);
 
   const loadData = async () => {
+    const request = ++loadSequence.current;
     if (!user) { setActiveOffer(null); setHandoff(null); setLoading(false); return; }
     setLoading(true);
     setLoadError(null);
     try {
       const ctx = await getRecruitmentContext(user.id);
-      const acceptedOffer = ctx.offers?.find((o: any) => o.status === 'accepted') || null; setActiveOffer(acceptedOffer); if (ctx.onboarding) { setHandoff(ctx.onboarding); if (ctx.onboarding.personal_data) setFormData(prev => ({ ...prev, ...ctx.onboarding.personal_data })); } else setHandoff(null);
+      if (request !== loadSequence.current) return;
+      const acceptedOffer = ctx.offers?.find((offer: JobOffer) => offer.status === 'accepted') || null;
+      setActiveOffer(acceptedOffer);
+      const nextHandoff = acceptedOffer ? await getMyPreboardingHandoff(acceptedOffer.application_id) : null;
+      if (request !== loadSequence.current) return;
+      setHandoff(nextHandoff);
+      if (nextHandoff?.candidate_personal_data) {
+        setFormData(prev => ({ ...prev, ...nextHandoff.candidate_personal_data }));
+      }
     } catch (cause) {
+      if (request !== loadSequence.current) return;
       setActiveOffer(null); setHandoff(null);
       setLoadError(cause instanceof Error ? cause.message : 'Unable to load records. Please retry.');
     } finally {
-      setLoading(false);
+      if (request === loadSequence.current) setLoading(false);
     }
   };
 
   const handleSaveStep = async (stepKey: string) => {
     if (!handoff) return;
+    const savingUserId = userIdRef.current;
     setSaving(true);
     setError(null);
 
-    const res = await updateOnboardingHandoff(handoff.id, stepKey, formData);
-    setSaving(false);
-
-    if (!res.success) {
-      setError(res.error || 'Failed to update preboarding information.');
-    } else {
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
-      if (res.handoff) setHandoff(res.handoff);
+    try {
+      const res = await updateOnboardingHandoff(handoff.application_id, stepKey, formData);
+      if (savingUserId !== userIdRef.current) return;
+      if (!res.success) setError(res.error || 'Failed to update preboarding information.');
+      else {
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 2500);
+        if (res.handoff) setHandoff(res.handoff);
+      }
+    } catch (cause) {
+      if (savingUserId !== userIdRef.current) return;
+      setError(cause instanceof Error ? cause.message : 'Preboarding changes were not saved. Please retry.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -100,10 +113,22 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
     );
   }
 
-  const isSubmittedToHr =
-    handoff?.status === 'submitted_for_verification' ||
-    handoff?.status === 'verified_by_hr' ||
-    handoff?.status === 'joining_confirmed';
+  const isSubmittedToHr = Boolean(handoff?.candidate_submitted_at);
+  const packetLocked = isSubmittedToHr || handoff?.status === 'completed' || handoff?.status === 'cancelled';
+
+  if (!activeOffer || !handoff) return (
+    <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+        <span className="text-xs font-semibold uppercase tracking-wider text-[#085587]">Post-Offer Transition</span>
+        <h1 className="mt-1 text-2xl font-bold text-slate-900">Preboarding is not available yet</h1>
+        <p className="mt-3 text-sm text-slate-600">An accepted offer is required before you can submit preboarding details. Your existing candidate and application records remain available.</p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button type="button" onClick={() => onNavigate('offers')} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#085587] px-4 text-sm font-semibold text-white">View offers <ArrowRight className="h-4 w-4" /></button>
+          <button type="button" onClick={() => void loadData()} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">Retry</button>
+        </div>
+      </section>
+    </main>
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 py-10">
@@ -149,17 +174,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
 
             <span
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg border self-start sm:self-auto ${
-                handoff?.status === 'joining_confirmed'
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                  : isSubmittedToHr
+                isSubmittedToHr
                   ? 'bg-sky-50 text-[#085587] border-sky-200'
                   : 'bg-amber-50 text-amber-800 border-amber-200'
               }`}
             >
-              {handoff?.status === 'joining_confirmed'
-                ? 'Joining Confirmed · Ready for Employee Activation'
-                : isSubmittedToHr
-                ? 'Submitted to HR · Under Credential Verification'
+              {isSubmittedToHr
+                ? 'Submitted to HR · Review Pending'
                 : 'Pending Candidate Preboarding Details'}
             </span>
           </div>
@@ -172,7 +193,7 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
               { num: 3, key: 'step_payroll', label: '3. Banking & Tax Info' },
               { num: 4, key: 'step_policies', label: '4. Policies & Security' }
             ].map((s) => {
-              const isCompleted = handoff?.completed_steps.includes(s.key);
+              const isCompleted = handoff?.candidate_completed_steps.includes(s.key);
               return (
                 <button
                   key={s.num}
@@ -197,18 +218,20 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
         {/* Step Form Details */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+            <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
               {error}
             </div>
           )}
 
           {saveSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
+            <div role="status" className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               <span>Preboarding step successfully saved & synced to HRMIS handoff record.</span>
             </div>
           )}
 
+          {isSubmittedToHr && <p role="status" className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Your packet was submitted to HR on {new Date(handoff.candidate_submitted_at!).toLocaleString()}. You can review it here; edits are locked while HR processes the handoff.</p>}
+          <fieldset disabled={packetLocked} className="space-y-6 disabled:opacity-80">
           {/* Step 1: Legal Identity */}
           {activeStep === 1 && (
             <div className="space-y-4">
@@ -217,11 +240,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-national-id" className="block font-semibold text-slate-700 mb-1">
                     National ID (NID) Number *
                   </label>
                   <input
+                    id="preboarding-national-id"
                     type="text"
+                    required
                     value={formData.national_id}
                     onChange={(e) => setFormData({ ...formData, national_id: e.target.value })}
                     placeholder="e.g. 19951234567890"
@@ -230,10 +255,11 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-passport-number" className="block font-semibold text-slate-700 mb-1">
                     Passport Number (Optional)
                   </label>
                   <input
+                    id="preboarding-passport-number"
                     type="text"
                     value={formData.passport_number}
                     onChange={(e) => setFormData({ ...formData, passport_number: e.target.value })}
@@ -243,11 +269,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-date-of-birth" className="block font-semibold text-slate-700 mb-1">
                     Date of Birth *
                   </label>
                   <input
+                    id="preboarding-date-of-birth"
                     type="date"
+                    required
                     value={formData.date_of_birth}
                     onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
@@ -255,9 +283,11 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Nationality *</label>
+                  <label htmlFor="preboarding-nationality" className="block font-semibold text-slate-700 mb-1">Nationality *</label>
                   <input
+                    id="preboarding-nationality"
                     type="text"
+                    required
                     value={formData.nationality}
                     onChange={(e) => setFormData({ ...formData, nationality: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
@@ -265,11 +295,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-address" className="block font-semibold text-slate-700 mb-1">
                     Permanent Residential Address *
                   </label>
                   <input
+                    id="preboarding-address"
                     type="text"
+                    required
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
@@ -298,11 +330,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-emergency-name" className="block font-semibold text-slate-700 mb-1">
                     Emergency Contact Full Name *
                   </label>
                   <input
+                    id="preboarding-emergency-name"
                     type="text"
+                    required
                     value={formData.emergency_contact_name}
                     onChange={(e) =>
                       setFormData({ ...formData, emergency_contact_name: e.target.value })
@@ -313,11 +347,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-emergency-phone" className="block font-semibold text-slate-700 mb-1">
                     Emergency Contact Phone *
                   </label>
                   <input
+                    id="preboarding-emergency-phone"
                     type="tel"
+                    required
                     value={formData.emergency_contact_phone}
                     onChange={(e) =>
                       setFormData({ ...formData, emergency_contact_phone: e.target.value })
@@ -328,14 +364,16 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Relationship *</label>
+                  <label htmlFor="preboarding-emergency-relation" className="block font-semibold text-slate-700 mb-1">Relationship *</label>
                   <select
+                    id="preboarding-emergency-relation"
                     value={formData.emergency_contact_relation}
                     onChange={(e) =>
                       setFormData({ ...formData, emergency_contact_relation: e.target.value })
                     }
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
                   >
+                    <option value="" disabled>Select a relationship</option>
                     <option value="Spouse">Spouse</option>
                     <option value="Parent">Parent</option>
                     <option value="Sibling">Sibling</option>
@@ -366,11 +404,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-bank-name" className="block font-semibold text-slate-700 mb-1">
                     Designated Bank PLC *
                   </label>
                   <input
+                    id="preboarding-bank-name"
                     type="text"
+                    required
                     value={formData.bank_name}
                     onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
@@ -378,11 +418,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-bank-account" className="block font-semibold text-slate-700 mb-1">
                     Bank Account Number *
                   </label>
                   <input
+                    id="preboarding-bank-account"
                     type="text"
+                    required
                     value={formData.bank_account_number}
                     onChange={(e) =>
                       setFormData({ ...formData, bank_account_number: e.target.value })
@@ -393,11 +435,13 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
+                  <label htmlFor="preboarding-tax-id" className="block font-semibold text-slate-700 mb-1">
                     Taxpayer Identification Number (e-TIN) *
                   </label>
                   <input
+                    id="preboarding-tax-id"
                     type="text"
+                    required
                     value={formData.tax_identification_number}
                     onChange={(e) =>
                       setFormData({ ...formData, tax_identification_number: e.target.value })
@@ -464,6 +508,7 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
               </div>
             </div>
           )}
+          </fieldset>
         </div>
       </div>
     </div>

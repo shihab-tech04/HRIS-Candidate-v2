@@ -344,10 +344,11 @@ export const OffersPage: React.FC<OffersPageProps> = ({ onNavigate }) => {
                 {responseType === 'accepted' ? (
                   <>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      <label htmlFor="offer-signature" className="block text-xs font-semibold text-slate-700 mb-1">
                         Type Legal Full Name (Digital Signature) *
                       </label>
                       <input
+                        id="offer-signature"
                         type="text"
                         required
                         value={signatureText}
@@ -361,10 +362,11 @@ export const OffersPage: React.FC<OffersPageProps> = ({ onNavigate }) => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      <label htmlFor="offer-acceptance-notes" className="block text-xs font-semibold text-slate-700 mb-1">
                         Optional Acceptance Message to Hiring Team
                       </label>
                       <textarea
+                        id="offer-acceptance-notes"
                         rows={3}
                         value={responseNotes}
                         onChange={(e) => setResponseNotes(e.target.value)}
@@ -375,10 +377,11 @@ export const OffersPage: React.FC<OffersPageProps> = ({ onNavigate }) => {
                   </>
                 ) : (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    <label htmlFor="offer-decline-reason" className="block text-xs font-semibold text-slate-700 mb-1">
                       Reason for Declining Offer *
                     </label>
                     <textarea
+                      id="offer-decline-reason"
                       rows={3}
                       required
                       value={responseNotes}

@@ -53,21 +53,38 @@ const tenantA = '22222222-2222-4222-8222-222222222222';
 const tenantB = '33333333-3333-4333-8333-333333333333';
 const jobId = randomUUID();
 const otherTenantJobId = randomUUID();
+const foreignApplicationId = randomUUID();
+const foreignOfferId = randomUUID();
 const password = `candidate-apply-${randomUUID()}`;
 const users = [
   { email: `candidate-apply-a-${Date.now()}@c1.test`, name: 'Candidate A', tenantId: tenantA },
   { email: `candidate-apply-b-${Date.now()}@c1.test`, name: 'Candidate B', tenantId: tenantB },
 ];
+const staff = [
+  { email: `c1-preboarding-manager-a-${Date.now()}@c1.test`, tenantId: tenantA, permission: 'recruitment.manage' },
+  { email: `c1-preboarding-viewer-a-${Date.now()}@c1.test`, tenantId: tenantA, permission: 'recruitment.view' },
+  { email: `c1-preboarding-manager-b-${Date.now()}@c1.test`, tenantId: tenantB, permission: 'recruitment.manage' },
+];
 const createdUsers = [];
 const profiles = [];
 const signedClients = [];
 let server;
+let mainServer;
 let browser;
 let checks = 0;
 const assert = (condition, message) => { if (!condition) throw new Error(message); checks++; };
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 
 async function cleanupTestUser(userId) {
+  const applications = await admin.from('job_applications').select('id').eq('candidate_user_id', userId);
+  if (applications.error) throw applications.error;
+  const applicationIds = applications.data.map(row => row.id);
+  if (applicationIds.length) {
+    for (const table of ['onboarding_handoffs', 'job_offers', 'candidate_application_stage_history']) {
+      const deleted = await admin.from(table).delete().in('application_id', applicationIds);
+      if (deleted.error) throw deleted.error;
+    }
+  }
   const cvRows = await admin.from('candidate_cvs').select('document_url').eq('candidate_user_id', userId);
   const profileRow = await admin.from('candidate_profiles').select('profile_data').eq('user_id', userId).maybeSingle();
   const documentRows = profileRow.data?.profile_data?.documents;
@@ -83,6 +100,10 @@ async function cleanupTestUser(userId) {
     const deletedRows = await admin.from(table).delete().eq('candidate_user_id', userId);
     if (deletedRows.error) throw deletedRows.error;
   }
+  const access = await admin.from('c1_preboarding_access').delete().eq('user_id', userId);
+  if (access.error) throw access.error;
+  const membership = await admin.from('tenant_memberships').delete().eq('user_id', userId);
+  if (membership.error) throw membership.error;
   const deletedProfile = await admin.from('candidate_profiles').delete().eq('user_id', userId);
   if (deletedProfile.error) throw deletedProfile.error;
   const deletedUser = await admin.auth.admin.deleteUser(userId);
@@ -109,12 +130,16 @@ async function cleanupStaleTestJobs() {
 const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013075939_hris_candidate_apply_rpc_source.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013080630_hris_candidate_application_document.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261013113718_hris_candidate_context_active_profile_tenant_scope.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261013120355_hris_candidate_profile_rpcs_active_tenant_scope.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261013130829_hris_recruitment_pipeline_read.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261013190200_hris_candidate_preboarding_workflow.sql'),
 ];
 for (const migration of migrationPaths) readFileSync(migration, 'utf8');
 
 const startUsers = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
 if (startUsers.error) throw startUsers.error;
-const staleTestUsers = startUsers.data.users.filter(user => /^candidate-apply-[ab]-\d+@c1\.test$/.test(user.email || ''));
+const staleTestUsers = startUsers.data.users.filter(user => /^(?:candidate-apply-[ab]|c1-preboarding-(?:manager-a|viewer-a|manager-b))-\d+@c1\.test$/.test(user.email || ''));
 const otherExistingUsers = startUsers.data.users.filter(user => !staleTestUsers.includes(user));
 if (otherExistingUsers.length) {
   throw new Error('Refusing to change local Auth because the dedicated test stack contains entries not created by this application test.');
@@ -186,6 +211,63 @@ try {
     signedClients.push(signed);
   }
 
+  for (const person of staff) {
+    const created = await admin.auth.admin.createUser({
+      email: person.email, password, email_confirm: true, user_metadata: { full_name: person.email.split('@')[0] },
+    });
+    if (created.error || !created.data.user) throw created.error || new Error('Could not create local recruitment staff user.');
+    person.id = created.data.user.id;
+    createdUsers.push(person.id);
+    const permissions = await admin.from('c1_preboarding_access').insert({
+      user_id: person.id, tenant_id: person.tenantId, permission_id: person.permission,
+    });
+    if (permissions.error) throw permissions.error;
+    const membership = await admin.from('tenant_memberships').insert({
+      user_id: person.id, tenant_id: person.tenantId,
+      role: person.permission === 'recruitment.manage' ? 'Recruitment Manager' : 'Recruitment Viewer', status: 'active',
+    });
+    if (membership.error) throw membership.error;
+    const signed = createClient(status.API_URL, status.ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+    const login = await signed.auth.signInWithPassword({ email: person.email, password });
+    if (login.error || !login.data.session) throw login.error || new Error('Local Auth did not issue a recruitment staff session.');
+    person.session = login.data.session;
+    person.client = signed;
+    signedClients.push(signed);
+  }
+
+  const foreignApplication = await admin.from('job_applications').insert({
+    id: foreignApplicationId, tenant_id: tenantB, job_id: otherTenantJobId,
+    candidate_user_id: users[1].id, full_name: users[1].name, email: users[1].email,
+    stage: 'offer_accepted', application_data: {},
+  });
+  if (foreignApplication.error) throw foreignApplication.error;
+  const foreignOffer = await admin.from('job_offers').insert({
+    id: foreignOfferId, application_id: foreignApplicationId, offered_title: 'Other Tenant Role',
+    salary_amount: 100000, salary_currency: 'BDT', status: 'accepted', pay_period: 'monthly',
+    responded_at: new Date().toISOString(), acceptance_signature: users[1].name,
+  });
+  if (foreignOffer.error) throw foreignOffer.error;
+  const foreignHandoff = await admin.from('onboarding_handoffs').insert({
+    application_id: foreignApplicationId, status: 'in_progress',
+    candidate_personal_data: { national_id: 'TEST-B-NID', nationality: 'Bangladeshi' },
+    candidate_completed_steps: ['step_identity', 'step_emergency', 'step_payroll', 'step_policies'],
+    candidate_submitted_at: new Date().toISOString(),
+  });
+  if (foreignHandoff.error) throw foreignHandoff.error;
+
+  const managerAccessReads = await Promise.all([
+    staff[0].client.from('tenant_memberships').select('tenant_id,role,status').eq('user_id', staff[0].id),
+    staff[0].client.from('employees').select('tenant_id,employment_status').eq('user_id', staff[0].id),
+    staff[0].client.from('admin_users').select('active,is_super_admin').eq('user_id', staff[0].id).maybeSingle(),
+    staff[0].client.from('tenants').select('id,name,slug,timezone').eq('id', tenantA).maybeSingle(),
+  ]);
+  for (const [index, response] of managerAccessReads.entries()) {
+    assert(!response.error, `Main workspace local authorization read ${index + 1} failed: ${JSON.stringify(response.error)}`);
+  }
+  assert(managerAccessReads[0].data.length === 1 && managerAccessReads[0].data[0].tenant_id === tenantA,
+    'Main workspace did not return the active authorized tenant membership.');
+  assert(managerAccessReads[3].data?.id === tenantA, 'Main workspace could not read the manager’s authorized tenant.');
+
   server = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', webPort, '--strictPort'], {
     cwd: candidateRoot,
     env: { ...process.env, VITE_SUPABASE_URL: status.API_URL, VITE_SUPABASE_ANON_KEY: status.ANON_KEY, VITE_ENABLE_DEMO_MODE: 'false' },
@@ -198,6 +280,19 @@ try {
     await wait(250);
   }
   assert(ready, 'Candidate application server did not become ready.');
+  const mainPort = process.env.HRIS_MAIN_PREBOARDING_E2E_PORT || '35523';
+  mainServer = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', mainPort, '--strictPort'], {
+    cwd: mainRoot,
+    env: { ...process.env, VITE_SUPABASE_URL: status.API_URL, VITE_SUPABASE_ANON_KEY: status.ANON_KEY },
+    stdio: 'ignore',
+  });
+  let mainReady = false;
+  for (let index = 0; index < 60; index++) {
+    if (mainServer.exitCode !== null) throw new Error(`Main HRIS Vite exited early (${mainServer.exitCode}).`);
+    try { if ((await fetch(`http://127.0.0.1:${mainPort}/`)).ok) { mainReady = true; break; } } catch {}
+    await wait(250);
+  }
+  assert(mainReady, 'Main HRIS application server did not become ready.');
   browser = await chromium.launch({ headless: true });
 
   const mobile = await browser.newContext({ viewport: { width: 375, height: 812 } });
@@ -357,14 +452,171 @@ try {
     },
   });
   assert(duplicate.error?.code === '23505', `Duplicate application was not denied by Postgres: ${JSON.stringify(duplicate.error)}`);
+
+  const issuedOffer = await admin.from('job_offers').insert({
+    id: randomUUID(), application_id: application.id, offered_title: 'Senior Systems Engineer',
+    salary_amount: 165000, salary_currency: 'BDT', proposed_joining_date: '2026-12-01',
+    status: 'issued', response_deadline: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+    pay_period: 'monthly',
+  });
+  if (issuedOffer.error) throw issuedOffer.error;
+  await page.goto(`http://127.0.0.1:${webPort}/?view=offers`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Employment Offers' }).waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'Accept & Sign Offer', exact: true }).click();
+  await page.getByLabel(/Type Legal Full Name/).fill('Candidate A Application Name');
+  await page.getByRole('button', { name: 'Confirm & Sign Offer' }).click();
+  await page.getByRole('heading', { name: 'Preboarding & Employee Transition' }).waitFor({ timeout: 20000 });
+  const acceptedOfferRow = await admin.from('job_offers').select('status,acceptance_signature').eq('application_id', application.id).single();
+  assert(!acceptedOfferRow.error && acceptedOfferRow.data.status === 'accepted' && acceptedOfferRow.data.acceptance_signature === 'Candidate A Application Name', 'Candidate offer acceptance and electronic signature did not persist.');
+  const generatedHandoff = await admin.from('onboarding_handoffs').select('id,status,application_id').eq('application_id', application.id).single();
+  assert(!generatedHandoff.error && generatedHandoff.data.status === 'pending', 'Accepted offer did not create the linked pending preboarding handoff.');
+
+  const preboardingMobile = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const preboardingPage = await preboardingMobile.newPage();
+  preboardingPage.on('pageerror', error => browserErrors.push(error.message));
+  const preboardingRpcResponses = [];
+  preboardingPage.on('response', async response => {
+    if (response.url().includes('candidate_save_my_preboarding_step')) {
+      preboardingRpcResponses.push({ status: response.status(), body: (await response.text()).slice(0, 1200) });
+    }
+  });
+  await preboardingPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
+  });
+  await preboardingPage.goto(`http://127.0.0.1:${webPort}/?view=preboarding`, { waitUntil: 'domcontentloaded' });
+  await preboardingPage.getByRole('heading', { name: 'Preboarding & Employee Transition' }).waitFor({ timeout: 20000 });
+  await preboardingPage.getByRole('button', { name: 'Save Identity Details' }).click();
+  try { await preboardingPage.getByRole('alert').waitFor({ timeout: 5000 }); }
+  catch { throw new Error(`Missing identity validation response. UI=${(await preboardingPage.locator('body').innerText()).slice(0, 2000)} RPC=${JSON.stringify(preboardingRpcResponses)} browser errors=${browserErrors.join(';') || 'none'}`); }
+  assert((await preboardingPage.getByRole('alert').innerText()).includes('Complete each required field'), 'Preboarding accepted an incomplete identity section.');
+  await preboardingPage.getByLabel(/National ID/).fill('NID-C1-A-001');
+  await preboardingPage.getByLabel(/Date of Birth/).fill('1992-03-14');
+  await preboardingPage.getByLabel(/Nationality/).fill('Bangladeshi');
+  await preboardingPage.getByLabel(/Permanent Residential Address/).fill('Dhaka, Bangladesh');
+  await preboardingPage.getByRole('button', { name: 'Save Identity Details' }).click();
+  await preboardingPage.getByText('Preboarding step successfully saved', { exact: false }).waitFor();
+  const savedIdentity = await admin.from('onboarding_handoffs').select('candidate_personal_data,candidate_completed_steps').eq('application_id', application.id).single();
+  assert(!savedIdentity.error && savedIdentity.data.candidate_personal_data.national_id === 'NID-C1-A-001'
+    && savedIdentity.data.candidate_completed_steps.includes('step_identity'), 'Candidate identity section did not persist to the isolated handoff record.');
+  await preboardingPage.reload({ waitUntil: 'domcontentloaded' });
+  await preboardingPage.getByRole('heading', { name: 'Preboarding & Employee Transition' }).waitFor({ timeout: 20000 });
+  assert(await preboardingPage.getByLabel(/National ID/).inputValue() === 'NID-C1-A-001', 'Saved preboarding identity did not recover after refresh.');
+
+  await preboardingPage.getByRole('button', { name: '2. Emergency Contact' }).click();
+  await preboardingPage.getByLabel(/Emergency Contact Full Name/).fill('Test Contact A');
+  await preboardingPage.getByLabel(/Emergency Contact Phone/).fill('+8801700000001');
+  await preboardingPage.getByLabel(/Relationship/).selectOption('Other');
+  await preboardingPage.getByRole('button', { name: 'Save Emergency Contact' }).click();
+  await preboardingPage.getByText('Preboarding step successfully saved', { exact: false }).waitFor();
+
+  await preboardingPage.getByRole('button', { name: '3. Banking & Tax Info' }).click();
+  await preboardingPage.getByRole('button', { name: 'Save Payroll Details' }).click();
+  await preboardingPage.getByRole('alert').waitFor();
+  assert((await preboardingPage.getByRole('alert').innerText()).includes('Complete each required field'), 'Preboarding accepted an incomplete payroll section.');
+  await preboardingPage.getByLabel(/Designated Bank/).fill('C1 Test Bank');
+  await preboardingPage.getByLabel(/Bank Account Number/).fill('1234567890');
+  await preboardingPage.getByLabel(/Taxpayer Identification Number/).fill('123456789012');
+  await preboardingPage.getByRole('button', { name: 'Save Payroll Details' }).click();
+  await preboardingPage.getByText('Preboarding step successfully saved', { exact: false }).waitFor();
+
+  await preboardingPage.getByRole('button', { name: '4. Policies & Security' }).click();
+  const submitPacket = preboardingPage.getByRole('button', { name: 'Complete & Submit Preboarding Packet' });
+  assert(await submitPacket.isDisabled(), 'Preboarding packet could be submitted before policy acknowledgment.');
+  await preboardingPage.getByLabel(/I acknowledge that I have read and agree/).check();
+  await submitPacket.click();
+  await preboardingPage.getByText('Your packet was submitted to HR', { exact: false }).waitFor({ timeout: 20000 });
+  assert(!(await preboardingPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile preboarding journey overflows the viewport.');
+  const submittedPacket = await admin.from('onboarding_handoffs').select('status,candidate_personal_data,candidate_completed_steps,candidate_submitted_at').eq('application_id', application.id).single();
+  assert(!submittedPacket.error && submittedPacket.data.status === 'in_progress' && submittedPacket.data.candidate_submitted_at
+    && submittedPacket.data.candidate_completed_steps.length === 4
+    && submittedPacket.data.candidate_personal_data.policies_accepted === true
+    && submittedPacket.data.candidate_personal_data.bank_account_number === '1234567890', 'Completed four-step packet did not persist with a separate HR handoff submission timestamp.');
+  await preboardingPage.getByRole('button', { name: '1. National ID & Passport' }).click();
+  assert(await preboardingPage.getByLabel(/National ID/).isDisabled(), 'Submitted preboarding packet remained editable.');
+
+  const ownPacket = await users[0].client.rpc('candidate_get_my_preboarding_handoff', { p_application_id: application.id });
+  assert(!ownPacket.error && ownPacket.data?.id === generatedHandoff.data.id, 'Candidate could not read their own tenant-scoped handoff.');
+  const foreignPacket = await users[0].client.rpc('candidate_get_my_preboarding_handoff', { p_application_id: foreignApplicationId });
+  assert(!foreignPacket.error && foreignPacket.data === null, 'Candidate A read a different tenant’s preboarding packet.');
+  const foreignWrite = await users[0].client.rpc('candidate_save_my_preboarding_step', {
+    p_application_id: foreignApplicationId, p_step_key: 'step_identity',
+    p_payload: { national_id: 'FORGED', date_of_birth: '1990-01-01', nationality: 'Test', address: 'Test' },
+  });
+  assert(foreignWrite.error?.code === 'P0002', `Cross-candidate write was not denied: ${JSON.stringify(foreignWrite.error)}`);
+  const postSubmitWrite = await users[0].client.rpc('candidate_save_my_preboarding_step', {
+    p_application_id: application.id, p_step_key: 'step_identity',
+    p_payload: { national_id: 'OVERWRITE', date_of_birth: '1990-01-01', nationality: 'Test', address: 'Test' },
+  });
+  assert(postSubmitWrite.error?.code === '42501', `Submitted packet could still be edited: ${JSON.stringify(postSubmitWrite.error)}`);
+  const candidateBOwnPacket = await users[1].client.rpc('candidate_get_my_preboarding_handoff', { p_application_id: foreignApplicationId });
+  assert(!candidateBOwnPacket.error && candidateBOwnPacket.data?.candidate_personal_data?.national_id === 'TEST-B-NID', 'Candidate B could not read their own packet.');
+  const anonymousPacket = await anon.rpc('candidate_get_my_preboarding_handoff', { p_application_id: application.id });
+  assert(anonymousPacket.error?.code === '42501', 'Anonymous caller was not denied preboarding access.');
+  const directCandidateRead = await users[0].client.from('onboarding_handoffs').select('id').eq('id', generatedHandoff.data.id);
+  assert(directCandidateRead.error?.code === '42501', `Candidate direct table read was not denied: ${JSON.stringify(directCandidateRead.error)}`);
+  const directCandidateWrite = await users[0].client.from('onboarding_handoffs').update({ status: 'completed' }).eq('id', generatedHandoff.data.id);
+  assert(directCandidateWrite.error?.code === '42501', `Candidate direct table write was not denied: ${JSON.stringify(directCandidateWrite.error)}`);
+
+  const managerAQueue = await staff[0].client.rpc('hris_get_candidate_preboarding_queue', { p_tenant_id: tenantA });
+  assert(!managerAQueue.error && managerAQueue.data.length === 1 && managerAQueue.data[0].candidate_email === users[0].email,
+    `Tenant A recruitment manager did not receive only the submitted tenant A packet: ${JSON.stringify(managerAQueue.error)}`);
+  const managerBCannotReadA = await staff[2].client.rpc('hris_get_candidate_preboarding_queue', { p_tenant_id: tenantA });
+  assert(managerBCannotReadA.error?.code === '42501', 'Tenant B recruitment manager was not denied Tenant A queue access.');
+  const managerBQueue = await staff[2].client.rpc('hris_get_candidate_preboarding_queue', { p_tenant_id: tenantB });
+  assert(!managerBQueue.error && managerBQueue.data.length === 1 && managerBQueue.data[0].candidate_email === users[1].email,
+    'Tenant B recruitment manager did not receive the tenant B handoff.');
+  const viewerQueue = await staff[1].client.rpc('hris_get_candidate_preboarding_queue', { p_tenant_id: tenantA });
+  assert(viewerQueue.error?.code === '42501', 'Recruitment view-only role was allowed to see private preboarding details.');
+  const candidateQueue = await users[0].client.rpc('hris_get_candidate_preboarding_queue', { p_tenant_id: tenantA });
+  assert(candidateQueue.error?.code === '42501', 'Candidate was allowed to read the HR preboarding queue.');
+  const managerDirectRead = await staff[0].client.from('onboarding_handoffs').select('id');
+  assert(managerDirectRead.error?.code === '42501', 'Recruitment manager bypassed the authorized queue RPC with direct table access.');
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Preboarding & Employee Transition' }).waitFor({ timeout: 20000 });
+  assert(await page.getByLabel(/National ID/).isDisabled(), 'Desktop preboarding journey did not recover the submitted, locked state.');
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop preboarding journey overflows the viewport.');
+
+  const mainManager = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const mainManagerPage = await mainManager.newPage();
+  mainManagerPage.on('pageerror', error => browserErrors.push(error.message));
+  const mainDiagnostics = [];
+  mainManagerPage.on('console', message => { if (message.type() === 'error') mainDiagnostics.push(message.text()); });
+  mainManagerPage.on('response', response => { if (response.status() >= 400) mainDiagnostics.push(`${response.status()} ${response.url()}`); });
+  await mainManagerPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: staff[0].session,
+  });
+  await mainManagerPage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
+  try { await mainManagerPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 10000 }); }
+  catch { throw new Error(`Main HR manager UI did not reach recruitment. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2400)} diagnostics=${mainDiagnostics.join(';') || browserErrors.join(';') || 'none'}`); }
+  await mainManagerPage.getByRole('heading', { name: 'Preboarding handoffs' }).waitFor({ timeout: 20000 });
+  await mainManagerPage.getByText(users[0].email, { exact: true }).waitFor();
+  assert(!(await mainManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile HR preboarding queue overflows the viewport.');
+
+  const viewOnlyContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const viewOnlyPage = await viewOnlyContext.newPage();
+  viewOnlyPage.on('pageerror', error => browserErrors.push(error.message));
+  await viewOnlyPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: staff[1].session,
+  });
+  await viewOnlyPage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
+  await viewOnlyPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 20000 });
+  assert(await viewOnlyPage.getByRole('heading', { name: 'Preboarding handoffs' }).count() === 0, 'Recruitment view-only UI exposed the private preboarding queue.');
+  await viewOnlyContext.close();
+  await mainManager.close();
+  await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted draft=refresh+cross-device tenant+owner+duplicate=denied private_upload=verified required_doc_submission=verified\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified preboarding=accepted-offer+4-step+refresh+submission manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) {
     server.kill('SIGTERM');
     await Promise.race([new Promise(resolve => server.once('exit', resolve)), wait(3000)]);
+  }
+  if (mainServer && mainServer.exitCode === null) {
+    mainServer.kill('SIGTERM');
+    await Promise.race([new Promise(resolve => mainServer.once('exit', resolve)), wait(3000)]);
   }
   for (const userId of createdUsers) {
     await cleanupTestUser(userId);

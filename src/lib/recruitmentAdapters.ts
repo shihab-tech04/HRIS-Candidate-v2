@@ -1,4 +1,4 @@
-import type { JobApplication, JobOffer, InterviewInvitation, CandidateDocumentRequest, ApplicationStatus } from '../types';
+import type { JobApplication, JobOffer, InterviewInvitation, CandidateDocumentRequest, ApplicationStatus, OnboardingHandoff } from '../types';
 
 /** Adapt the actual Supabase JSON DTO to the existing Careers UI.
  * No sample values, inferred compensation or public storage links.
@@ -75,6 +75,34 @@ export function adaptLiveDocumentRequest(row: Row): CandidateDocumentRequest {
     submitted_file_name: asText(row.submitted_file_name),
     submitted_at: asText(row.submitted_at),
     created_at: asText(row.created_at)
+  };
+}
+export function adaptLiveOnboardingHandoff(raw: unknown): OnboardingHandoff {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Preboarding service returned an invalid response.');
+  }
+  const row = raw as Row;
+  const data = row.candidate_personal_data && typeof row.candidate_personal_data === 'object'
+    && !Array.isArray(row.candidate_personal_data) ? row.candidate_personal_data as Row : {};
+  const stringFields = [
+    'national_id', 'passport_number', 'date_of_birth', 'nationality', 'address',
+    'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relation',
+    'bank_name', 'bank_account_number', 'tax_identification_number',
+  ] as const;
+  const personalData = Object.fromEntries(stringFields.flatMap(key =>
+    typeof data[key] === 'string' ? [[key, data[key]]] : [])) as OnboardingHandoff['candidate_personal_data'];
+  if (typeof data.policies_accepted === 'boolean') personalData.policies_accepted = data.policies_accepted;
+  const status = ['pending', 'in_progress', 'completed', 'cancelled'].includes(asText(row.status))
+    ? row.status as OnboardingHandoff['status'] : 'pending';
+  return {
+    id: asText(row.id),
+    application_id: asText(row.application_id),
+    status,
+    candidate_completed_steps: strings(row.candidate_completed_steps),
+    candidate_personal_data: personalData,
+    candidate_submitted_at: typeof row.candidate_submitted_at === 'string' ? row.candidate_submitted_at : null,
+    created_at: asText(row.created_at),
+    updated_at: asText(row.updated_at),
   };
 }
 function applicationStatus(row: Row): ApplicationStatus {

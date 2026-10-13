@@ -1,5 +1,5 @@
 import { getSupabaseClient } from './supabase';
-import { adaptLiveRecruitmentContext } from './recruitmentAdapters';
+import { adaptLiveOnboardingHandoff, adaptLiveRecruitmentContext } from './recruitmentAdapters';
 import { adaptLiveCandidateProfile, toCandidateProfileRpcPayload } from './candidateProfileAdapters';
 import {
   PublishedJob,
@@ -19,6 +19,41 @@ import {
 import { INITIAL_PUBLISHED_JOBS } from './mockData';
 
 const LOCAL_STORAGE_KEY_PREFIX = 'synesis_hrmis_candidate_';
+
+type CandidateRecruitmentContext = Record<string, any> & {
+  applications: JobApplication[];
+  interviews: InterviewInvitation[];
+  assessments: CandidateAssessment[];
+  document_requests: CandidateDocumentRequest[];
+  offers: JobOffer[];
+  onboarding: OnboardingHandoff | null;
+  notifications: CandidateNotification[];
+};
+
+function normalizeDemoOnboardingHandoff(raw: Record<string, any>): OnboardingHandoff {
+  const oldStatus = String(raw.status || 'pending');
+  const status: OnboardingHandoff['status'] = ['pending', 'in_progress', 'completed', 'cancelled'].includes(oldStatus)
+    ? oldStatus as OnboardingHandoff['status']
+    : oldStatus === 'joining_confirmed' || oldStatus === 'verified_by_hr' ? 'completed'
+      : oldStatus === 'submitted_for_verification' ? 'in_progress' : 'pending';
+  const oldData = raw.candidate_personal_data ?? raw.personal_data;
+  const personalData = oldData && typeof oldData === 'object' && !Array.isArray(oldData) ? oldData : {};
+  const oldSteps = raw.candidate_completed_steps ?? raw.completed_steps;
+  const submittedAt = raw.candidate_submitted_at ?? (
+    ['submitted_for_verification', 'verified_by_hr', 'joining_confirmed'].includes(oldStatus)
+      ? raw.updated_at ?? raw.created_at ?? null : null
+  );
+  return {
+    id: String(raw.id || ''),
+    application_id: String(raw.application_id || ''),
+    status,
+    candidate_completed_steps: Array.isArray(oldSteps) ? oldSteps.filter((step: unknown): step is string => typeof step === 'string') : [],
+    candidate_personal_data: personalData,
+    candidate_submitted_at: typeof submittedAt === 'string' ? submittedAt : null,
+    created_at: String(raw.created_at || ''),
+    updated_at: String(raw.updated_at || raw.created_at || ''),
+  };
+}
 
 // Explicit opt-in for isolated local development only. Never use sample data as live HR records.
 export const DEMO_MODE = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_MODE === 'true';
@@ -153,12 +188,11 @@ function initializeLocalState() {
   if (!localStorage.getItem(LOCAL_STORAGE_KEY_PREFIX + 'onboarding')) {
     const defaultOnboarding: OnboardingHandoff = {
       id: 'onb-synesis-301',
-      offer_id: 'ofr-synesis-901',
       application_id: 'app-synesis-098',
-      user_id: 'user-demo-candidate-123',
-      status: 'pending_candidate_info',
-      completed_steps: [],
-      personal_data: {},
+      status: 'pending',
+      candidate_completed_steps: [],
+      candidate_personal_data: {},
+      candidate_submitted_at: null,
       created_at: '2026-10-08T16:30:00Z',
       updated_at: '2026-10-08T16:30:00Z'
     };
@@ -358,16 +392,19 @@ export async function updateCandidateProfile(
 // -------------------------------------------------------------
 // CANDIDATE RECRUITMENT CONTEXT: candidate_get_recruitment_context
 // -------------------------------------------------------------
-export async function getRecruitmentContext(userId: string) {
+export async function getRecruitmentContext(userId: string): Promise<CandidateRecruitmentContext> {
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
       const { data, error } = await supabase.rpc('candidate_get_recruitment_context');
       if (!error && data) {
-        return adaptLiveRecruitmentContext(data);
+        const context = adaptLiveRecruitmentContext(data) as CandidateRecruitmentContext;
+        return { ...context, onboarding: null };
       }
+      if (error) throw error;
     } catch (e) {
-      console.warn('Supabase candidate_get_recruitment_context error', e);
+      console.warn('Supabase candidate recruitment context error', e);
+      if (!DEMO_MODE) throw new Error('Recruitment and preboarding records could not be verified. Please retry.');
     }
   }
 
@@ -388,9 +425,28 @@ export async function getRecruitmentContext(userId: string) {
     assessments: allAssessments,
     document_requests: allDocRequests,
     offers: allOffers,
-    onboarding: allOnboarding.find((o) => o.user_id === userId) || null,
+    onboarding: (() => {
+      const handoff = allOnboarding.find(item => userApps.some(app => app.id === item.application_id));
+      return handoff ? normalizeDemoOnboardingHandoff(handoff as unknown as Record<string, any>) : null;
+    })(),
     notifications: allNotifications.filter((n) => n.user_id === userId)
   };
+}
+
+export async function getMyPreboardingHandoff(applicationId: string): Promise<OnboardingHandoff | null> {
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const result = await supabase.rpc('candidate_get_my_preboarding_handoff', { p_application_id: applicationId });
+      if (result.error) throw result.error;
+      return result.data ? adaptLiveOnboardingHandoff(result.data) : null;
+    } catch (cause) {
+      if (!DEMO_MODE) throw new Error(cause instanceof Error ? cause.message : 'Preboarding records could not be verified.');
+    }
+  }
+  if (!DEMO_MODE) throw new Error('Preboarding records could not be verified. Please retry.');
+  const handoff = getLocal<Record<string, any>[]>('onboarding', []).find(item => item.application_id === applicationId);
+  return handoff ? normalizeDemoOnboardingHandoff(handoff) : null;
 }
 
 // -------------------------------------------------------------
@@ -754,16 +810,15 @@ export async function respondToOffer(
   // If accepted, initiate onboarding handoff record
   if (response === 'accepted') {
     const handoffs = getLocal<OnboardingHandoff[]>('onboarding', []);
-    let handoff = handoffs.find((h) => h.offer_id === offerId);
+      let handoff = handoffs.find((h) => h.application_id === offers[index].application_id);
     if (!handoff) {
       handoff = {
         id: 'onb-' + Date.now(),
-        offer_id: offerId,
         application_id: offers[index].application_id,
-        user_id: 'user-demo-candidate-123',
-        status: 'pending_candidate_info',
-        completed_steps: [],
-        personal_data: {},
+          status: 'pending',
+          candidate_completed_steps: [],
+          candidate_personal_data: {},
+          candidate_submitted_at: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -779,27 +834,50 @@ export async function respondToOffer(
 // PREBOARDING HANDOFF UPDATES
 // -------------------------------------------------------------
 export async function updateOnboardingHandoff(
-  handoffId: string,
+  applicationId: string,
   stepKey: string,
-  stepData: Partial<OnboardingHandoff['personal_data']>
+  stepData: Partial<OnboardingHandoff['candidate_personal_data']>
 ): Promise<{ success: boolean; handoff?: OnboardingHandoff; error?: string }> {
-  if (!DEMO_MODE) return { success: false, error: 'Preboarding updates require a verified backend workflow.' };
-  const handoffs = getLocal<OnboardingHandoff[]>('onboarding', []);
-  const index = handoffs.findIndex((h) => h.id === handoffId);
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    const allowedByStep: Record<string, string[]> = {
+      step_identity: ['national_id', 'passport_number', 'date_of_birth', 'nationality', 'address'],
+      step_emergency: ['emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relation'],
+      step_payroll: ['bank_name', 'bank_account_number', 'tax_identification_number'],
+      step_policies: ['policies_accepted'],
+    };
+    const allowed = allowedByStep[stepKey];
+    if (!allowed) return { success: false, error: 'Unknown preboarding step.' };
+    const payload = Object.fromEntries(allowed.filter(key => Object.hasOwn(stepData, key))
+      .map(key => [key, stepData[key as keyof typeof stepData]]));
+    try {
+      const result = await supabase.rpc('candidate_save_my_preboarding_step', {
+        p_application_id: applicationId,
+        p_step_key: stepKey,
+        p_payload: payload,
+      });
+      if (result.error) return { success: false, error: result.error.message };
+      return { success: true, handoff: adaptLiveOnboardingHandoff(result.data) };
+    } catch (cause) {
+      return { success: false, error: cause instanceof Error ? cause.message : 'Preboarding changes were not saved. Please retry.' };
+    }
+  }
+  if (!DEMO_MODE) return { success: false, error: 'Preboarding changes could not be saved. Please retry.' };
+  const handoffs = getLocal<Record<string, any>[]>('onboarding', []);
+  const index = handoffs.findIndex((h) => h.application_id === applicationId);
   if (index === -1) return { success: false, error: 'Onboarding record not found' };
 
-  const current = handoffs[index];
-  const completedSteps = Array.from(new Set([...current.completed_steps, stepKey]));
+  const current = normalizeDemoOnboardingHandoff(handoffs[index]);
+  const completedSteps = Array.from(new Set([...current.candidate_completed_steps, stepKey]));
+  const personalData = { ...current.candidate_personal_data, ...stepData };
+  const submitted = completedSteps.length >= 4;
 
   const updated: OnboardingHandoff = {
     ...current,
-    completed_steps: completedSteps,
-    personal_data: {
-      ...current.personal_data,
-      ...stepData
-    },
-    status:
-      completedSteps.length >= 4 ? 'submitted_for_verification' : 'pending_candidate_info',
+    candidate_completed_steps: completedSteps,
+    candidate_personal_data: personalData,
+    candidate_submitted_at: submitted ? current.candidate_submitted_at || new Date().toISOString() : current.candidate_submitted_at,
+    status: completedSteps.length ? 'in_progress' : current.status,
     updated_at: new Date().toISOString()
   };
 
