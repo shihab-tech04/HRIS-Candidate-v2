@@ -74,13 +74,20 @@ let browser;
 let checks = 0;
 const assert = (condition, message) => { if (!condition) throw new Error(message); checks++; };
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
+const organizationDateTime = daysAhead => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(Date.now() + daysAhead * 86400000)).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+};
 
 async function cleanupTestUser(userId) {
   const applications = await admin.from('job_applications').select('id').eq('candidate_user_id', userId);
   if (applications.error) throw applications.error;
   const applicationIds = applications.data.map(row => row.id);
   if (applicationIds.length) {
-    for (const table of ['onboarding_handoffs', 'job_offers', 'candidate_application_stage_history']) {
+    for (const table of ['onboarding_handoffs', 'job_offers', 'interviews', 'candidate_application_stage_history']) {
       const deleted = await admin.from(table).delete().in('application_id', applicationIds);
       if (deleted.error) throw deleted.error;
     }
@@ -135,6 +142,8 @@ const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013130829_hris_recruitment_pipeline_read.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013132335_hris_recruitment_offer_issue.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013190200_hris_candidate_preboarding_workflow.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261013052128_hris_candidate_c1_revoke_direct_table_access.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261013221500_hris_candidate_interview_journey.sql'),
 ];
 for (const migration of migrationPaths) readFileSync(migration, 'utf8');
 
@@ -465,6 +474,25 @@ try {
     p_response_deadline: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
     p_terms: 'Role: Senior Systems Engineer\nOffer source: employer-entered local acceptance terms.',
   };
+  const interviewArguments = {
+    p_tenant_id: tenantA,
+    p_application_id: application.id,
+    p_round_name: 'Technical Systems Interview',
+    p_format: 'Video Call',
+    p_scheduled_at: organizationDateTime(3),
+    p_duration_minutes: 45,
+    p_location_or_link: 'https://meet.example.test/hris-candidate-acceptance',
+    p_panel_members: ['Panel Member One', 'Panel Member Two'],
+    p_instructions: 'Join five minutes before the scheduled time.',
+  };
+  const viewerSchedule = await staff[1].client.rpc('hris_schedule_candidate_interview', interviewArguments);
+  assert(viewerSchedule.error?.code === '42501', 'Recruitment viewer scheduled an interview.');
+  const foreignTenantSchedule = await staff[2].client.rpc('hris_schedule_candidate_interview', interviewArguments);
+  assert(foreignTenantSchedule.error?.code === '42501', 'Another tenant’s manager scheduled an interview for this application.');
+  const invalidInterviewSchedule = await staff[0].client.rpc('hris_schedule_candidate_interview', { ...interviewArguments, p_duration_minutes: 0 });
+  assert(invalidInterviewSchedule.error?.code === '22023', 'Backend accepted an invalid interview duration.');
+  const anonymousSchedule = await anon.rpc('hris_schedule_candidate_interview', interviewArguments);
+  assert(anonymousSchedule.error?.code === '42501', 'Anonymous caller scheduled a candidate interview.');
   const viewerIssue = await staff[1].client.rpc('hris_issue_candidate_offer', issueArguments);
   assert(viewerIssue.error?.code === '42501', `Recruitment viewer issued an offer: ${JSON.stringify(viewerIssue.error)}`);
   const foreignTenantIssue = await staff[2].client.rpc('hris_issue_candidate_offer', issueArguments);
@@ -494,6 +522,116 @@ try {
   try { await mainManagerPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 10000 }); }
   catch { throw new Error(`Main HR manager UI did not reach recruitment. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2400)} diagnostics=${mainDiagnostics.join(';') || browserErrors.join(';') || 'none'}`); }
   await mainManagerPage.getByRole('heading', { name: 'Applications' }).waitFor();
+  await mainManagerPage.getByText('Schedule interview', { exact: true }).click();
+  assert(await mainManagerPage.locator('form').last().evaluate(form => !form.checkValidity()), 'Interview schedule form did not require its round, date, and duration.');
+  await mainManagerPage.getByLabel('Interview round').fill(interviewArguments.p_round_name);
+  await mainManagerPage.getByLabel('Interview format').selectOption(interviewArguments.p_format);
+  await mainManagerPage.getByLabel('Interview date and time (organization time zone)').fill(interviewArguments.p_scheduled_at);
+  await mainManagerPage.getByLabel('Interview duration in minutes').fill(String(interviewArguments.p_duration_minutes));
+  await mainManagerPage.getByLabel('Secure meeting link').fill(interviewArguments.p_location_or_link);
+  await mainManagerPage.getByLabel('Panel members').fill(interviewArguments.p_panel_members.join(', '));
+  await mainManagerPage.getByLabel('Candidate instructions').fill(interviewArguments.p_instructions);
+  await mainManagerPage.getByRole('button', { name: 'Send interview invitation' }).click();
+  try { await mainManagerPage.getByRole('status').filter({ hasText: 'Interview invitation scheduled.' }).waitFor({ timeout: 20000 }); }
+  catch { throw new Error(`Interview scheduling failed. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2200)} diagnostics=${mainDiagnostics.join(';') || 'none'}`); }
+  const scheduledInterview = await admin.from('interviews').select('id,status,interview_type,scheduled_at,duration_minutes,panel_members,location_or_link,timezone').eq('application_id', application.id).eq('status', 'scheduled').single();
+  assert(!scheduledInterview.error && scheduledInterview.data.status === 'scheduled'
+    && scheduledInterview.data.interview_type === 'Technical Systems Interview — Video Call'
+    && scheduledInterview.data.duration_minutes === 45 && scheduledInterview.data.panel_members.length === 2
+    && scheduledInterview.data.timezone === 'Asia/Dhaka'
+    && new Date(scheduledInterview.data.scheduled_at).toLocaleString('sv-SE', { timeZone: scheduledInterview.data.timezone }).replace(' ', 'T').slice(0, 16) === interviewArguments.p_scheduled_at,
+  `Manager interview details did not persist: ${JSON.stringify(scheduledInterview.error || scheduledInterview.data)}`);
+  const foreignInterview = await admin.from('interviews').insert({
+    id: randomUUID(), application_id: foreignApplicationId,
+    scheduled_at: new Date(Date.now() + 4 * 86400000).toISOString(),
+    interview_type: 'Cross-tenant authorization fixture — Video Call',
+    location_or_link: 'https://meet.example.test/cross-tenant-fixture',
+    status: 'scheduled', created_by: staff[2].id, candidate_response: 'invited',
+    duration_minutes: 30, timezone: 'Asia/Dhaka', panel_members: [], instructions: null,
+  }).select('id').single();
+  assert(!foreignInterview.error, `Could not prepare the isolated cross-candidate authorization fixture: ${JSON.stringify(foreignInterview.error)}`);
+  const crossCandidateResponse = await users[0].client.rpc('candidate_respond_interview', {
+    p_interview_id: foreignInterview.data.id, p_response: 'confirmed', p_reason: null, p_proposed_times: null,
+  });
+  assert(crossCandidateResponse.error?.code === 'P0002', 'Candidate A responded to Candidate B’s tenant interview.');
+  const candidateCannotSchedule = await users[0].client.rpc('hris_schedule_candidate_interview', interviewArguments);
+  assert(candidateCannotSchedule.error?.code === '42501', 'Candidate was allowed to schedule an HR interview.');
+  const directInterviewRead = await users[0].client.from('interviews').select('id').eq('id', scheduledInterview.data.id);
+  assert(directInterviewRead.error?.code === '42501', 'Candidate bypassed the owner-scoped interview context using direct table access.');
+  const viewerResponseQueue = await staff[1].client.rpc('hris_get_candidate_interview_responses', { p_tenant_id: tenantA });
+  assert(viewerResponseQueue.error?.code === '42501', 'Recruitment viewer read candidate interview responses.');
+  const foreignResponseQueue = await staff[2].client.rpc('hris_get_candidate_interview_responses', { p_tenant_id: tenantA });
+  assert(foreignResponseQueue.error?.code === '42501', 'Tenant B manager read Tenant A interview responses.');
+  const managerResponseQueue = await staff[0].client.rpc('hris_get_candidate_interview_responses', { p_tenant_id: tenantA });
+  assert(!managerResponseQueue.error && managerResponseQueue.data.length === 1
+    && managerResponseQueue.data[0].candidate_email === users[0].email,
+  'Tenant A manager did not receive only their own scheduled interview response.');
+  const managerDirectInterviewRead = await staff[0].client.from('interviews').select('id').eq('id', scheduledInterview.data.id);
+  assert(managerDirectInterviewRead.error?.code === '42501', 'Recruiter bypassed the tenant response RPC with a direct table read.');
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(`http://127.0.0.1:${webPort}/?view=interviews`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
+  await page.getByText('Technical Systems Interview', { exact: false }).waitFor();
+  assert(await page.getByText('Video Call', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview format. UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
+  assert(await page.getByText('Panel Member One, Panel Member Two', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview panel. UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
+  assert(await page.getByText('Asia/Dhaka', { exact: false }).count() > 0, 'Candidate interview time did not disclose the organization time zone.');
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile candidate interview page overflows the viewport.');
+  await page.getByRole('button', { name: 'Request Reschedule' }).click();
+  try { await page.getByRole('heading', { name: 'Request Alternative Time Slot' }).waitFor({ timeout: 5000 }); }
+  catch { throw new Error(`Candidate reschedule dialog did not open. UI=${(await page.locator('body').innerText()).slice(0, 2400)}`); }
+  const responseTextboxes = page.getByRole('textbox');
+  await responseTextboxes.nth(0).fill('I have an overlapping work commitment.');
+  await responseTextboxes.nth(1).fill('Friday 10:00–12:00 Asia/Dhaka');
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile reschedule dialog overflows the viewport.');
+  await page.getByRole('button', { name: 'Confirm Response' }).click();
+  await page.getByText('Reschedule Requested', { exact: true }).waitFor({ timeout: 20000 });
+  const candidateReschedule = await admin.from('interviews').select('candidate_response,candidate_response_note,candidate_proposed_times').eq('id', scheduledInterview.data.id).single();
+  assert(!candidateReschedule.error && candidateReschedule.data.candidate_response === 'reschedule_requested'
+    && candidateReschedule.data.candidate_proposed_times === 'Friday 10:00–12:00 Asia/Dhaka',
+  'Candidate reschedule request did not persist with its proposed availability.');
+  const incompleteReschedule = await users[0].client.rpc('candidate_respond_interview', {
+    p_interview_id: scheduledInterview.data.id, p_response: 'reschedule_requested', p_reason: null, p_proposed_times: null,
+  });
+  assert(incompleteReschedule.error?.code === '22023', 'Candidate reschedule request was accepted without reason and proposed times.');
+  const duplicateCandidateResponse = await users[0].client.rpc('candidate_respond_interview', {
+    p_interview_id: scheduledInterview.data.id, p_response: 'confirmed', p_reason: null, p_proposed_times: null,
+  });
+  assert(duplicateCandidateResponse.error?.code === 'P0002', 'Candidate changed a submitted response on the same invitation.');
+  await mainManagerPage.reload({ waitUntil: 'domcontentloaded' });
+  await mainManagerPage.getByRole('heading', { name: 'Interview responses' }).waitFor({ timeout: 20000 });
+  await mainManagerPage.getByText('Reschedule requested', { exact: true }).waitFor();
+  await mainManagerPage.getByText('Friday 10:00–12:00 Asia/Dhaka', { exact: false }).waitFor();
+  await mainManagerPage.locator('section[aria-labelledby="interview-responses-heading"]').getByText(/45 minutes · Asia\/Dhaka/).waitFor();
+  await mainManagerPage.getByText('Offer another time', { exact: true }).click();
+  await mainManagerPage.getByLabel('Interview round').fill('Technical Systems Interview');
+  await mainManagerPage.getByLabel('Interview format').selectOption('Video Call');
+  await mainManagerPage.getByLabel('Interview date and time (organization time zone)').fill(organizationDateTime(5));
+  await mainManagerPage.getByLabel('Interview duration in minutes').fill('45');
+  await mainManagerPage.getByLabel('Secure meeting link').fill('https://meet.example.test/hris-candidate-rescheduled');
+  await mainManagerPage.getByLabel('Panel members').fill('Panel Member One, Panel Member Two');
+  await mainManagerPage.getByLabel('Candidate instructions').fill('Revised invitation.');
+  await mainManagerPage.getByRole('button', { name: 'Send interview invitation' }).click();
+  await mainManagerPage.getByText('Interview invitation scheduled.', { exact: false }).waitFor({ timeout: 20000 });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop candidate interview page overflows the viewport.');
+  await page.getByText('Rescheduled', { exact: false }).waitFor().catch(() => {});
+  await page.getByRole('button', { name: 'Accept Invitation' }).waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'Accept Invitation' }).click();
+  await page.getByRole('button', { name: 'Confirm Response' }).click();
+  await page.getByText('Confirmed / Accepted', { exact: true }).waitFor({ timeout: 20000 });
+  const finalInterviews = await admin.from('interviews').select('status,candidate_response').eq('application_id', application.id).order('created_at');
+  assert(!finalInterviews.error && finalInterviews.data.length === 2
+    && finalInterviews.data[0].status === 'cancelled'
+    && finalInterviews.data[0].candidate_response === 'reschedule_requested'
+    && finalInterviews.data[1].status === 'scheduled' && finalInterviews.data[1].candidate_response === 'confirmed',
+  `Reschedule history or final candidate acceptance was not persisted: ${JSON.stringify(finalInterviews.error || finalInterviews.data)}`);
+  await mainManagerPage.reload({ waitUntil: 'domcontentloaded' });
+  await mainManagerPage.getByRole('heading', { name: 'Interview responses' }).waitFor({ timeout: 20000 });
+  await mainManagerPage.getByText('Candidate accepted', { exact: true }).waitFor();
+
   await mainManagerPage.getByText('Issue offer', { exact: true }).click();
   assert(await mainManagerPage.locator('form').last().evaluate(form => !form.checkValidity()), 'Offer form did not enforce required fields before submission.');
   await mainManagerPage.getByLabel('Offer amount').fill('165000');
@@ -646,7 +784,7 @@ try {
   await mainManagerPage.reload({ waitUntil: 'domcontentloaded' });
   await mainManagerPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 20000 });
   await mainManagerPage.getByRole('heading', { name: 'Preboarding handoffs' }).waitFor({ timeout: 20000 });
-  await mainManagerPage.getByText(users[0].email, { exact: true }).waitFor();
+  await mainManagerPage.locator('section[aria-labelledby="preboarding-queue-heading"]').getByText(users[0].email, { exact: true }).waitFor();
   assert(!(await mainManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile HR preboarding queue overflows the viewport.');
 
   const viewOnlyContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -664,7 +802,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified preboarding=accepted-offer+4-step+refresh+submission manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) {

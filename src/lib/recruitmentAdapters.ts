@@ -40,6 +40,9 @@ export function adaptLiveOffer(row: Row): JobOffer {
 }
 export function adaptLiveInterview(row: Row): InterviewInvitation {
   const response = asText(row.candidate_response);
+  const serializedType = asText(row.interview_type ?? row.round_name);
+  const formatSuffix = /\s+—\s+(Video Call|In-person|Phone Call)$/.exec(serializedType);
+  const interviewFormat = asText(row.interview_format) || formatSuffix?.[1] || serializedType;
   const status: InterviewInvitation['status'] = row.status === 'cancelled' ? 'cancelled'
     : row.status === 'completed' ? 'completed'
     : response === 'confirmed' ? 'accepted'
@@ -51,16 +54,18 @@ export function adaptLiveInterview(row: Row): InterviewInvitation {
     application_id: asText(row.application_id),
     job_title: asText(row.job_title),
     department: asText(row.department_name ?? row.department),
-    round_name: asText(row.interview_type ?? row.round_name),
+    round_name: formatSuffix ? serializedType.slice(0, formatSuffix.index).trim() : serializedType,
     scheduled_at: asText(row.scheduled_at),
     duration_minutes: Number(row.duration_minutes ?? 60),
-    format: format(row.interview_type),
+    timezone: asText(row.timezone) || undefined,
+    format: format(interviewFormat),
     meeting_link: /^https:\/\//i.test(location) ? location : undefined,
     location: location && !/^https:\/\//i.test(location) ? location : undefined,
     interviewers: strings(row.panel_members ?? row.interviewers),
     instructions: asText(row.instructions),
     status,
     candidate_notes: asText(row.candidate_response_note),
+    candidate_proposed_times: asText(row.candidate_proposed_times),
     created_at: asText(row.created_at)
   };
 }

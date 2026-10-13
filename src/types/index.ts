@@ -162,6 +162,7 @@ export interface InterviewInvitation {
   round_name: string;
   scheduled_at: string; // ISO date string
   duration_minutes: number;
+  timezone?: string;
   format: 'Video Call' | 'In-person' | 'Phone Call' | 'To be confirmed';
   meeting_link?: string;
   location?: string;
@@ -169,6 +170,7 @@ export interface InterviewInvitation {
   instructions: string;
   status: 'pending' | 'accepted' | 'declined' | 'reschedule_requested' | 'completed' | 'cancelled';
   candidate_notes?: string;
+  candidate_proposed_times?: string;
   created_at: string;
 }
 

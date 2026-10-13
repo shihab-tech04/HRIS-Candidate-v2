@@ -188,7 +188,8 @@ export const InterviewsPage: React.FC<InterviewsPageProps> = ({ onNavigate }) =>
                             weekday: 'short',
                             year: 'numeric',
                             month: 'short',
-                            day: 'numeric'
+                            day: 'numeric',
+                            ...(inv.timezone ? { timeZone: inv.timezone } : {})
                           })}
                         </p>
                       </div>
@@ -199,8 +200,8 @@ export const InterviewsPage: React.FC<InterviewsPageProps> = ({ onNavigate }) =>
                       <div>
                         <p className="text-slate-500 text-[11px]">Time & Duration</p>
                         <p className="font-semibold text-slate-800">
-                          {scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{' '}
-                          ({inv.duration_minutes} mins)
+                          {scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(inv.timezone ? { timeZone: inv.timezone } : {}) })}{' '}
+                          ({inv.duration_minutes} mins){inv.timezone ? ` · ${inv.timezone}` : ''}
                         </p>
                       </div>
                     </div>
@@ -251,6 +252,11 @@ export const InterviewsPage: React.FC<InterviewsPageProps> = ({ onNavigate }) =>
                       <div className="pt-1 text-slate-600 text-[11px]">
                         <span className="font-semibold text-slate-800">Your Note to HR:</span> "
                         {inv.candidate_notes}"
+                      </div>
+                    )}
+                    {isReschedule && inv.candidate_proposed_times && (
+                      <div className="pt-1 text-[11px] text-amber-800">
+                        <span className="font-semibold">Your proposed availability:</span> {inv.candidate_proposed_times}
                       </div>
                     )}
                   </div>
