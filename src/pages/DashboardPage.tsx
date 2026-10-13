@@ -31,6 +31,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const { user, profile } = useAuth();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -39,17 +40,28 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   }, [user]);
 
   const loadContext = async () => {
-    if (!user) return;
+    if (!user) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const ctx = await getRecruitmentContext(user.id);
-    const saved = getSavedJobs(user.id);
-    const cvs = getCandidateCVs(user.id);
-    setData({
-      ...ctx,
-      saved_jobs: saved,
-      cvs
-    });
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const ctx = await getRecruitmentContext(user.id);
+      const saved = getSavedJobs(user.id);
+      const cvs = getCandidateCVs(user.id);
+      setData({
+        ...ctx,
+        saved_jobs: saved,
+        cvs
+      });
+    } catch (cause) {
+      setData(null);
+      setLoadError(cause instanceof Error ? cause.message : 'Unable to load records. Please retry.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Profile completion calculation
@@ -75,6 +87,24 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           ))}
         </div>
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-4 py-16">
+        <div className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
+          <h1 className="text-xl font-semibold text-slate-900">Unable to load your workspace</h1>
+          <p role="alert" className="mt-3 text-sm text-red-700">{loadError}</p>
+          <button
+            type="button"
+            className="min-h-11 mt-4 rounded-lg border border-slate-300 px-4 font-medium text-slate-800 hover:bg-slate-50"
+            onClick={() => void loadContext()}
+          >
+            Retry
+          </button>
+        </div>
+      </main>
     );
   }
 

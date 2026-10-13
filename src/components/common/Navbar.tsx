@@ -41,7 +41,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-8">
+        <div className="flex items-center justify-between h-16 gap-2 sm:gap-8">
           {/* Zone 1: Brand wordmark */}
           <div className="flex items-center gap-3 shrink-0">
             <button
@@ -52,7 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 S
               </div>
               <div className="leading-tight">
-                <span className="text-xl font-bold tracking-tight text-slate-900 group-hover:text-[#085587] transition-colors whitespace-nowrap">
+                <span className="text-base sm:text-xl font-bold tracking-tight text-slate-900 group-hover:text-[#085587] transition-colors whitespace-nowrap">
                   Synesis <span className="text-[#085587]">Careers</span>
                 </span>
               </div>
@@ -142,7 +142,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Zone 3: 1 Primary Action / Auth */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-3 shrink-0">
             {import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_MODE === 'true' && <button
               onClick={openConfigModal}
               title="Backend & Supabase Connection Info"
@@ -156,6 +156,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="relative">
                 <button
                   onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                  aria-label={`Open account menu for ${user.user_metadata?.full_name || user.email}`}
                   className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-colors focus:outline-none"
                 >
                   <div className="w-7 h-7 rounded-full bg-[#085587] text-white flex items-center justify-center font-medium text-xs">
@@ -163,7 +164,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       ? user.user_metadata.full_name.charAt(0).toUpperCase()
                       : user.email.charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-xs font-medium text-slate-700 max-w-[120px] truncate">
+                  <span className="hidden sm:inline text-xs font-medium text-slate-700 max-w-[120px] truncate">
                     {user.user_metadata?.full_name || user.email.split('@')[0]}
                   </span>
                 </button>
