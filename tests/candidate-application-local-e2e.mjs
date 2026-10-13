@@ -146,15 +146,16 @@ if (otherExistingUsers.length) {
   throw new Error('Refusing to change local Auth because the dedicated test stack contains entries not created by this application test.');
 }
 for (const staleUser of staleTestUsers) await cleanupTestUser(staleUser.id);
-await cleanupStaleTestJobs();
 const cleanUsers = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
 if (cleanUsers.error || cleanUsers.data.users.length !== 0) throw cleanUsers.error || new Error('Local Auth did not return to an empty state.');
-const idCollision = psql(`SELECT count(*) FROM public.jobs WHERE id IN (${sql(jobId)},${sql(otherTenantJobId)})`).trim();
-if (idCollision !== '0') throw new Error('Refusing to overwrite a local test job.');
 
 try {
+  psql(readFileSync(path.join(mainRoot, 'tests/sql/candidate-c1/tenant-fixture.sql'), 'utf8'));
   psql(readFileSync(path.join(candidateRoot, 'tests/candidate-application-local-fixture.sql'), 'utf8'));
   for (const migration of migrationPaths) psql(readFileSync(migration, 'utf8'));
+  await cleanupStaleTestJobs();
+  const idCollision = psql(`SELECT count(*) FROM public.jobs WHERE id IN (${sql(jobId)},${sql(otherTenantJobId)})`).trim();
+  if (idCollision !== '0') throw new Error('Refusing to overwrite a local test job.');
 
   const testJob = {
     id: jobId, tenant_id: tenantA, reference_number: `C1-${jobId.slice(0, 8)}`,

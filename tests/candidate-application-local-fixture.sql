@@ -35,10 +35,6 @@ CREATE TABLE IF NOT EXISTS public.c1_preboarding_access (
 REVOKE ALL ON TABLE public.c1_preboarding_access FROM PUBLIC, anon, authenticated;
 GRANT ALL ON TABLE public.c1_preboarding_access TO service_role;
 DROP POLICY IF EXISTS c1_tenant_membership_read ON public.tenants;
-CREATE POLICY c1_tenant_membership_read ON public.tenants FOR SELECT TO authenticated USING (
-  public.has_tenant_permission(tenants.id,'recruitment.view')
-  OR public.has_tenant_permission(tenants.id,'recruitment.manage')
-);
 
 CREATE OR REPLACE FUNCTION public.synesis_tenant_id()
 RETURNS uuid
@@ -59,6 +55,10 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $fu
 $function$;
 REVOKE ALL ON FUNCTION public.has_tenant_permission(uuid,text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.has_tenant_permission(uuid,text) TO authenticated, service_role;
+CREATE POLICY c1_tenant_membership_read ON public.tenants FOR SELECT TO authenticated USING (
+  public.has_tenant_permission(tenants.id,'recruitment.view')
+  OR public.has_tenant_permission(tenants.id,'recruitment.manage')
+);
 
 CREATE OR REPLACE FUNCTION public.hris_admin_can_read_tenant(p_tenant_id uuid, p_permission_id text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $function$

@@ -5,6 +5,8 @@ import { adaptLiveApplication } from '../src/lib/recruitmentAdapters.ts';
 
 const page = readFileSync(new URL('../src/pages/VerifiedApplyPage.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../src/lib/api.ts', import.meta.url), 'utf8');
+const localJourney = readFileSync(new URL('./candidate-application-local-e2e.mjs', import.meta.url), 'utf8');
+const localFixture = readFileSync(new URL('./candidate-application-local-fixture.sql', import.meta.url), 'utf8');
 
 test('live application sends profile-backed contact details and verified document ids', () => {
   assert.match(page, /uploadCandidateApplicationDocument/);
@@ -53,4 +55,28 @@ test('live flat application DTO maps job title, department, status, and screenin
   assert.deepEqual(app.screening_answers, { 'q-1': ['Bangla', 'English'] });
   assert.equal(app.consent_given, true);
   assert.equal(app.submitted_at, '2026-10-13T08:00:00.000Z');
+});
+
+test('fresh local application journey creates its schema before cleaning stale test jobs', () => {
+  const baseSchemaAt = localJourney.indexOf("psql(readFileSync(path.join(mainRoot, 'tests/sql/candidate-c1/tenant-fixture.sql'), 'utf8'))");
+  const fixtureAt = localJourney.indexOf("psql(readFileSync(path.join(candidateRoot, 'tests/candidate-application-local-fixture.sql'), 'utf8'))");
+  const migrationAt = localJourney.indexOf('for (const migration of migrationPaths) psql(readFileSync(migration, \'utf8\'))');
+  const cleanupAt = localJourney.indexOf('await cleanupStaleTestJobs();', migrationAt);
+  const collisionCheckAt = localJourney.indexOf('SELECT count(*) FROM public.jobs', cleanupAt);
+  const jobInsertAt = localJourney.indexOf('const testJob = {', cleanupAt);
+  assert.ok(baseSchemaAt >= 0 && baseSchemaAt < fixtureAt, 'Shared synthetic candidate schema loads before local workflow fixtures.');
+  assert.ok(fixtureAt >= 0 && fixtureAt < migrationAt, 'Disposable workflow fixture loads before product migrations.');
+  assert.ok(migrationAt >= 0 && migrationAt < cleanupAt, 'Product schema loads before stale-job cleanup.');
+  assert.ok(cleanupAt >= 0 && cleanupAt < jobInsertAt, 'Stale local fixtures are removed before the new local job is inserted.');
+  assert.ok(collisionCheckAt > cleanupAt && collisionCheckAt < jobInsertAt, 'Job collision checks run only after the disposable schema is initialized.');
+  assert.doesNotMatch(localJourney.slice(0, fixtureAt), /await cleanupStaleTestJobs\(\)/,
+    'No table cleanup runs against an uninitialized database.');
+  assert.doesNotMatch(localJourney.slice(0, baseSchemaAt), /SELECT count\(\) FROM public\.jobs/,
+    'No job-table query runs before the disposable schema is initialized.');
+});
+
+test('local preboarding tenant policy is created only after its permission helper exists', () => {
+  const helperAt = localFixture.indexOf('CREATE OR REPLACE FUNCTION public.has_tenant_permission');
+  const policyAt = localFixture.indexOf('CREATE POLICY c1_tenant_membership_read');
+  assert.ok(helperAt >= 0 && helperAt < policyAt, 'Tenant helper is defined before the policy calls it.');
 });
