@@ -214,6 +214,7 @@ export interface JobOffer {
   currency: string;
   salary_period: 'monthly' | 'annual';
   benefits_summary: string[];
+  terms?: string;
   start_date: string;
   expiry_date: string;
   offer_document_url?: string;

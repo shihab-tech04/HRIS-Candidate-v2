@@ -133,6 +133,7 @@ const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013113718_hris_candidate_context_active_profile_tenant_scope.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013120355_hris_candidate_profile_rpcs_active_tenant_scope.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013130829_hris_recruitment_pipeline_read.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261013132335_hris_recruitment_offer_issue.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013190200_hris_candidate_preboarding_workflow.sql'),
 ];
 for (const migration of migrationPaths) readFileSync(migration, 'utf8');
@@ -453,15 +454,79 @@ try {
   });
   assert(duplicate.error?.code === '23505', `Duplicate application was not denied by Postgres: ${JSON.stringify(duplicate.error)}`);
 
-  const issuedOffer = await admin.from('job_offers').insert({
-    id: randomUUID(), application_id: application.id, offered_title: 'Senior Systems Engineer',
-    salary_amount: 165000, salary_currency: 'BDT', proposed_joining_date: '2026-12-01',
-    status: 'issued', response_deadline: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-    pay_period: 'monthly',
+  const issueArguments = {
+    p_tenant_id: tenantA,
+    p_application_id: application.id,
+    p_salary_amount: 165000,
+    p_salary_currency: 'BDT',
+    p_pay_period: 'monthly',
+    p_proposed_joining_date: new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10),
+    p_response_deadline: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+    p_terms: 'Role: Senior Systems Engineer\nOffer source: employer-entered local acceptance terms.',
+  };
+  const viewerIssue = await staff[1].client.rpc('hris_issue_candidate_offer', issueArguments);
+  assert(viewerIssue.error?.code === '42501', `Recruitment viewer issued an offer: ${JSON.stringify(viewerIssue.error)}`);
+  const foreignTenantIssue = await staff[2].client.rpc('hris_issue_candidate_offer', issueArguments);
+  assert(foreignTenantIssue.error?.code === '42501', `Another tenant’s manager issued this offer: ${JSON.stringify(foreignTenantIssue.error)}`);
+  const invalidOfferAmount = await staff[0].client.rpc('hris_issue_candidate_offer', { ...issueArguments, p_salary_amount: 0 });
+  assert(invalidOfferAmount.error?.code === '22023', `Backend accepted a non-positive offer amount: ${JSON.stringify(invalidOfferAmount.error)}`);
+  const directOfferWrite = await staff[0].client.from('job_offers').insert({
+    application_id: application.id, offered_title: 'Unauthorized direct write',
+    salary_amount: 1, salary_currency: 'BDT', status: 'issued',
   });
-  if (issuedOffer.error) throw issuedOffer.error;
-  await page.goto(`http://127.0.0.1:${webPort}/?view=offers`, { waitUntil: 'domcontentloaded' });
+  assert(directOfferWrite.error?.code === '42501', 'Recruitment manager bypassed the offer issue RPC through direct table access.');
+
+  const mainManager = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const mainManagerPage = await mainManager.newPage();
+  mainManagerPage.on('pageerror', error => browserErrors.push(error.message));
+  const mainDiagnostics = [];
+  const offerIssueResponses = [];
+  mainManagerPage.on('console', message => { if (message.type() === 'error') mainDiagnostics.push(message.text()); });
+  mainManagerPage.on('response', async response => {
+    if (response.status() >= 400) mainDiagnostics.push(`${response.status()} ${response.url()}`);
+    if (response.url().includes('hris_issue_candidate_offer')) offerIssueResponses.push({ status: response.status(), body: (await response.text()).slice(0, 1000) });
+  });
+  await mainManagerPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: staff[0].session,
+  });
+  await mainManagerPage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
+  try { await mainManagerPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 10000 }); }
+  catch { throw new Error(`Main HR manager UI did not reach recruitment. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2400)} diagnostics=${mainDiagnostics.join(';') || browserErrors.join(';') || 'none'}`); }
+  await mainManagerPage.getByRole('heading', { name: 'Applications' }).waitFor();
+  await mainManagerPage.getByText('Issue offer', { exact: true }).click();
+  assert(await mainManagerPage.locator('form').last().evaluate(form => !form.checkValidity()), 'Offer form did not enforce required fields before submission.');
+  await mainManagerPage.getByLabel('Offer amount').fill('165000');
+  await mainManagerPage.getByLabel('Currency code').fill('BDT');
+  await mainManagerPage.getByLabel('Pay period').selectOption('monthly');
+  await mainManagerPage.getByLabel('Proposed joining date').fill(issueArguments.p_proposed_joining_date);
+  await mainManagerPage.getByLabel('Candidate response deadline').fill(issueArguments.p_response_deadline);
+  await mainManagerPage.getByLabel('Offer terms').fill(issueArguments.p_terms);
+  await mainManagerPage.getByRole('button', { name: 'Issue offer to candidate' }).click();
+  try { await mainManagerPage.getByRole('status').filter({ hasText: 'Offer issued to the candidate.' }).waitFor({ timeout: 20000 }); }
+  catch { throw new Error(`Offer issue did not complete. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2000)} response=${JSON.stringify(offerIssueResponses)} diagnostics=${mainDiagnostics.join(';') || 'none'}`); }
+  assert(!(await mainManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile recruiter offer form overflows the viewport.');
+  const issuedOffer = await admin.from('job_offers').select('id,status,offered_title,salary_amount,salary_currency,pay_period,proposed_joining_date,response_deadline,terms').eq('application_id', application.id).single();
+  assert(!issuedOffer.error && issuedOffer.data.status === 'issued' && issuedOffer.data.offered_title === 'Senior Systems Engineer'
+    && issuedOffer.data.salary_amount === 165000 && issuedOffer.data.salary_currency === 'BDT'
+    && issuedOffer.data.pay_period === 'monthly' && issuedOffer.data.terms === issueArguments.p_terms,
+  `Recruiter offer did not persist its entered terms: ${JSON.stringify(issuedOffer.error || issuedOffer.data)}`);
+  const duplicateOffer = await staff[0].client.rpc('hris_issue_candidate_offer', issueArguments);
+  assert(duplicateOffer.error?.code === '23505', `A second open offer was not denied: ${JSON.stringify(duplicateOffer.error)}`);
+
+  const candidateOfferContexts = [];
+  page.on('response', async response => {
+    if (!response.url().includes('candidate_get_recruitment_context')) return;
+    try {
+      const payload = await response.json();
+      candidateOfferContexts.push({ status: response.status(), offers: (payload.offers || []).map(offer => ({ id: offer.id, terms: offer.terms })) });
+    } catch { candidateOfferContexts.push({ status: response.status(), parseFailed: true }); }
+  });
+  await page.getByRole('button', { name: 'Offers & Preboarding', exact: true }).click();
   await page.getByRole('heading', { name: 'Employment Offers' }).waitFor({ timeout: 20000 });
+  const candidateOfferPageText = await page.locator('body').innerText();
+  assert(candidateOfferPageText.includes('Role: Senior Systems Engineer'),
+    `Candidate did not see the employer-entered offer terms before responding. Context=${JSON.stringify(candidateOfferContexts)} UI=${candidateOfferPageText.slice(0, 1800)}`);
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop candidate offer page overflows the viewport.');
   await page.getByRole('button', { name: 'Accept & Sign Offer', exact: true }).click();
   await page.getByLabel(/Type Legal Full Name/).fill('Candidate A Application Name');
   await page.getByRole('button', { name: 'Confirm & Sign Offer' }).click();
@@ -577,18 +642,8 @@ try {
   assert(await page.getByLabel(/National ID/).isDisabled(), 'Desktop preboarding journey did not recover the submitted, locked state.');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop preboarding journey overflows the viewport.');
 
-  const mainManager = await browser.newContext({ viewport: { width: 375, height: 812 } });
-  const mainManagerPage = await mainManager.newPage();
-  mainManagerPage.on('pageerror', error => browserErrors.push(error.message));
-  const mainDiagnostics = [];
-  mainManagerPage.on('console', message => { if (message.type() === 'error') mainDiagnostics.push(message.text()); });
-  mainManagerPage.on('response', response => { if (response.status() >= 400) mainDiagnostics.push(`${response.status()} ${response.url()}`); });
-  await mainManagerPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
-    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: staff[0].session,
-  });
-  await mainManagerPage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
-  try { await mainManagerPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 10000 }); }
-  catch { throw new Error(`Main HR manager UI did not reach recruitment. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2400)} diagnostics=${mainDiagnostics.join(';') || browserErrors.join(';') || 'none'}`); }
+  await mainManagerPage.reload({ waitUntil: 'domcontentloaded' });
+  await mainManagerPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 20000 });
   await mainManagerPage.getByRole('heading', { name: 'Preboarding handoffs' }).waitFor({ timeout: 20000 });
   await mainManagerPage.getByText(users[0].email, { exact: true }).waitFor();
   assert(!(await mainManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile HR preboarding queue overflows the viewport.');
@@ -601,6 +656,7 @@ try {
   });
   await viewOnlyPage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
   await viewOnlyPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 20000 });
+  assert(await viewOnlyPage.getByText('Issue offer', { exact: true }).count() === 0, 'Recruitment view-only UI exposed the offer issue action.');
   assert(await viewOnlyPage.getByRole('heading', { name: 'Preboarding handoffs' }).count() === 0, 'Recruitment view-only UI exposed the private preboarding queue.');
   await viewOnlyContext.close();
   await mainManager.close();

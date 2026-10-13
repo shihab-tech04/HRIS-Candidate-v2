@@ -236,6 +236,11 @@ export const OffersPage: React.FC<OffersPageProps> = ({ onNavigate }) => {
                       </div>
                     </div>
 
+                    {offer.terms?.trim() && <section aria-label="Offer terms" className="rounded-xl border border-[#B9DCE2] bg-[#F4FAFB] p-4 sm:p-5">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Offer terms</h3>
+                      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{offer.terms}</p>
+                    </section>}
+
                     {/* Benefits Package */}
                     {offer.benefits_summary && offer.benefits_summary.length > 0 && (
                       <div>

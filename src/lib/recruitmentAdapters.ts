@@ -28,6 +28,7 @@ export function adaptLiveOffer(row: Row): JobOffer {
     currency: asText(row.salary_currency ?? row.currency ?? 'BDT'),
     salary_period: asText(row.pay_period ?? row.salary_period).toLowerCase() === 'annual' ? 'annual' : 'monthly',
     benefits_summary: strings(row.benefits_summary),
+    terms: asText(row.terms),
     start_date: asText(row.proposed_joining_date ?? row.start_date),
     expiry_date: asText(row.response_deadline ?? row.expiry_date),
     status: row.status === 'issued' ? 'extended' : (row.status as JobOffer['status']),
