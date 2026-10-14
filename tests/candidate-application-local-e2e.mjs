@@ -401,6 +401,23 @@ try {
   expectedSavedJobLookupFailure = false;
   assert(await mobilePage.getByRole('button', { name: 'Remove', exact: true }).count() === 1, 'Saved job disappeared after a failed removal and list retry.');
   await mobilePage.getByRole('button', { name: 'Details' }).click();
+  const detailsSavedJob = mobilePage.getByRole('button', { name: 'Remove Senior Systems Engineer from saved jobs' });
+  await detailsSavedJob.waitFor({ timeout: 20000 });
+  assert(await detailsSavedJob.getAttribute('aria-pressed') === 'true', 'Job details did not load the saved state for the authenticated candidate.');
+  await detailsSavedJob.click();
+  await mobilePage.getByRole('status').filter({ hasText: 'Senior Systems Engineer was removed from saved jobs.' }).waitFor({ timeout: 20000 });
+  const unsavedFromDetails = mobilePage.getByRole('button', { name: 'Save Senior Systems Engineer for later' });
+  assert(await unsavedFromDetails.getAttribute('aria-pressed') === 'false', 'Job details did not update its pressed state after removal.');
+  const detailsRemovalPersisted = await admin.from('candidate_saved_jobs').select('id')
+    .eq('candidate_user_id', users[0].id).eq('job_id', jobId);
+  assert(!detailsRemovalPersisted.error && detailsRemovalPersisted.data.length === 0, 'Removing from job details did not persist deletion.');
+  await unsavedFromDetails.click();
+  await mobilePage.getByRole('status').filter({ hasText: 'Senior Systems Engineer was saved to your account.' }).waitFor({ timeout: 20000 });
+  const resavedFromDetails = mobilePage.getByRole('button', { name: 'Remove Senior Systems Engineer from saved jobs' });
+  assert(await resavedFromDetails.getAttribute('aria-pressed') === 'true', 'Job details did not update its pressed state after saving.');
+  const detailsSavePersisted = await admin.from('candidate_saved_jobs').select('id')
+    .eq('candidate_user_id', users[0].id).eq('job_id', jobId);
+  assert(!detailsSavePersisted.error && detailsSavePersisted.data.length === 1, 'Saving from job details did not persist.');
   await mobilePage.getByRole('button', { name: 'Back to jobs' }).waitFor({ timeout: 20000 });
   await mobilePage.getByRole('button', { name: 'Back to jobs' }).click();
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
