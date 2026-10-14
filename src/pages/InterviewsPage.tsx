@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { InterviewInvitation } from '../types';
 import { getRecruitmentContext, respondToInterview } from '../lib/api';
@@ -35,25 +35,31 @@ export const InterviewsPage: React.FC<InterviewsPageProps> = ({ onNavigate }) =>
   const [proposedAvailability, setProposedAvailability] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
 
-  useEffect(() => {
-    loadInterviews();
-  }, [user]);
-
-  const loadInterviews = async () => {
-    if (!user) { setInterviews([]); setLoading(false); return; }
+  const loadInterviews = useCallback(async () => {
+    const requestId = ++requestSequence.current;
+    const userId = user?.id;
+    if (!userId) { setInterviews([]); setLoading(false); return; }
     setLoading(true);
     setLoadError(null);
     try {
-      const ctx = await getRecruitmentContext(user.id);
+      const ctx = await getRecruitmentContext(userId);
+      if (requestId !== requestSequence.current) return;
       setInterviews(ctx.interviews || []);
     } catch (cause) {
+      if (requestId !== requestSequence.current) return;
       setInterviews([]);
       setLoadError(cause instanceof Error ? cause.message : 'Unable to load records. Please retry.');
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    void loadInterviews();
+    return () => { requestSequence.current += 1; };
+  }, [loadInterviews]);
 
   const openActionModal = (
     inv: InterviewInvitation,

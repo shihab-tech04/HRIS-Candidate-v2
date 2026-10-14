@@ -116,6 +116,28 @@ ALTER TABLE public.candidate_application_drafts
   ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
   ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
+-- Browser journeys call the existing saved-jobs reader from the shared
+-- navigation. Model its documented user-owned table contract in this fixture.
+ALTER TABLE public.candidate_saved_jobs
+  ALTER COLUMN id SET DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS candidate_user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS job_id uuid,
+  ADD COLUMN IF NOT EXISTS saved_at timestamptz NOT NULL DEFAULT now();
+CREATE UNIQUE INDEX IF NOT EXISTS c1_apply_saved_jobs_user_job_uq
+  ON public.candidate_saved_jobs(candidate_user_id, job_id);
+ALTER TABLE public.candidate_saved_jobs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.candidate_saved_jobs FROM PUBLIC, anon;
+GRANT SELECT, INSERT, DELETE ON TABLE public.candidate_saved_jobs TO authenticated;
+DROP POLICY IF EXISTS c1_apply_saved_jobs_select_own ON public.candidate_saved_jobs;
+DROP POLICY IF EXISTS c1_apply_saved_jobs_insert_own ON public.candidate_saved_jobs;
+DROP POLICY IF EXISTS c1_apply_saved_jobs_delete_own ON public.candidate_saved_jobs;
+CREATE POLICY c1_apply_saved_jobs_select_own ON public.candidate_saved_jobs
+  FOR SELECT TO authenticated USING (candidate_user_id=(SELECT auth.uid()));
+CREATE POLICY c1_apply_saved_jobs_insert_own ON public.candidate_saved_jobs
+  FOR INSERT TO authenticated WITH CHECK (candidate_user_id=(SELECT auth.uid()));
+CREATE POLICY c1_apply_saved_jobs_delete_own ON public.candidate_saved_jobs
+  FOR DELETE TO authenticated USING (candidate_user_id=(SELECT auth.uid()));
+
 CREATE UNIQUE INDEX IF NOT EXISTS c1_apply_candidate_drafts_user_job_uq
   ON public.candidate_application_drafts(candidate_user_id, job_id);
 DO $do$

@@ -144,6 +144,7 @@ async function cleanupStaleTestJobs() {
 const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013075939_hris_candidate_apply_rpc_source.sql'),
   path.join(mainRoot, 'supabase/migrations/20261014150000_hris_candidate_initial_application_history.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261014012249_recruiter_application_stage_transition.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013080630_hris_candidate_application_document.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013113718_hris_candidate_context_active_profile_tenant_scope.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013120355_hris_candidate_profile_rpcs_active_tenant_scope.sql'),
@@ -319,12 +320,20 @@ try {
   const mobile = await browser.newContext({ viewport: { width: 375, height: 812 } });
   const mobilePage = await mobile.newPage();
   const browserErrors = [];
+  const networkDiagnostics = [];
   mobilePage.on('pageerror', error => browserErrors.push(error.message));
+  mobilePage.on('console', message => { if (message.type() === 'error') browserErrors.push(`console: ${message.text()} at ${message.location().url || 'unknown URL'}`); });
+  mobilePage.on('requestfailed', request => browserErrors.push(`request failed: ${request.url()} — ${request.failure()?.errorText || 'unknown error'}`));
+  mobilePage.on('response', response => networkDiagnostics.push(`${response.status()} ${response.request().method()} ${response.url()}`));
   await mobilePage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
     storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
   });
   await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=apply&job=${jobId}`, { waitUntil: 'domcontentloaded' });
-  await mobilePage.getByRole('heading', { name: 'Apply for Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  try {
+    await mobilePage.getByRole('heading', { name: 'Apply for Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  } catch (error) {
+    throw new Error(`Application route failed to render for ${mobilePage.url()}: ${(await mobilePage.locator('body').innerText()).slice(0, 1600)}; browser diagnostics: ${browserErrors.join(' | ')}; network: ${networkDiagnostics.join(' | ')}`, { cause: error });
+  }
   await mobilePage.getByRole('button', { name: 'Back to job' }).click();
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
   assert(new URL(mobilePage.url()).searchParams.get('view') === 'job-details', 'Back to job did not cancel the application route safely.');
@@ -469,6 +478,27 @@ try {
     && submittedApplication.stage_history[0].actor_type === 'candidate'
     && !Object.hasOwn(submittedApplication.stage_history[0], 'actor_user_id'),
   `Initial candidate submission history did not persist as a candidate-safe event: ${JSON.stringify(submittedContext.error || submittedApplication?.stage_history)}`);
+  const applicationStageArgs = { p_tenant_id: tenantA, p_application_id: application.id };
+  const viewOnlyStage = await staff[1].client.rpc('hris_update_candidate_application_stage', { ...applicationStageArgs, p_stage: 'under_review' });
+  const crossTenantStage = await staff[2].client.rpc('hris_update_candidate_application_stage', { ...applicationStageArgs, p_stage: 'under_review' });
+  const candidateStage = await users[0].client.rpc('hris_update_candidate_application_stage', { ...applicationStageArgs, p_stage: 'under_review' });
+  assert(viewOnlyStage.error?.code === '42501' && crossTenantStage.error?.code === '42501' && candidateStage.error?.code === '42501',
+    'Candidate review stages were mutable by a viewer, another tenant, or the candidate.');
+  const movedToReview = await staff[0].client.rpc('hris_update_candidate_application_stage', { ...applicationStageArgs, p_stage: 'under_review' });
+  const movedToScreening = await staff[0].client.rpc('hris_update_candidate_application_stage', { ...applicationStageArgs, p_stage: 'screening' });
+  const repeatedScreening = await staff[0].client.rpc('hris_update_candidate_application_stage', { ...applicationStageArgs, p_stage: 'screening' });
+  assert(!movedToReview.error && movedToReview.data?.stage === 'under_review' && movedToReview.data?.changed === true
+    && !movedToScreening.error && movedToScreening.data?.stage === 'screening' && movedToScreening.data?.changed === true
+    && !repeatedScreening.error && repeatedScreening.data?.changed === false,
+  `Recruiter review/screening transitions failed or duplicated on retry: ${JSON.stringify(movedToReview.error || movedToScreening.error || repeatedScreening.error)}`);
+  const screeningContext = await users[0].client.rpc('candidate_get_recruitment_context');
+  const screeningApplication = screeningContext.data?.applications?.find(row => row.id === application.id);
+  assert(!screeningContext.error && screeningApplication?.stage === 'screening'
+    && screeningApplication.stage_history?.length === 3
+    && screeningApplication.stage_history.map(row => row.stage).join(',') === 'applied,under_review,screening'
+    && screeningApplication.stage_history.every(row => !Object.hasOwn(row, 'actor_user_id'))
+    && !JSON.stringify(screeningApplication.stage_history).includes('Application moved to screening.'),
+  `Candidate did not receive persisted review stages without recruiter identity or internal notes: ${JSON.stringify(screeningContext.error || screeningApplication?.stage_history)}`);
   await page.getByText('Application History', { exact: true }).waitFor();
   await page.getByRole('region', { name: 'Application history' }).getByText('Application Submitted', { exact: true }).waitFor();
   const initialApplicationTimeline = await page.locator('body').innerText();
@@ -824,6 +854,7 @@ try {
   await page.goto(`http://127.0.0.1:${webPort}/?view=applications`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
   const mobileHistory = page.getByRole('region', { name: 'Application history' });
+  await mobileHistory.getByText('Screening in Progress', { exact: true }).first().waitFor({ timeout: 20000 });
   await mobileHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
   await mobileHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });
   const persistedTimeline = await page.locator('body').innerText();
