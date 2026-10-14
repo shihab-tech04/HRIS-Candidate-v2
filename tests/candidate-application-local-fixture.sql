@@ -81,6 +81,11 @@ CREATE TABLE IF NOT EXISTS public.employees (
   tenant_id uuid NOT NULL,
   employment_status text NOT NULL DEFAULT 'active'
 );
+ALTER TABLE public.employees
+  ADD COLUMN IF NOT EXISTS employee_number text,
+  ADD COLUMN IF NOT EXISTS full_name text,
+  ADD COLUMN IF NOT EXISTS official_email text,
+  ADD COLUMN IF NOT EXISTS joining_date date;
 CREATE TABLE IF NOT EXISTS public.admin_users (
   user_id uuid PRIMARY KEY,
   active boolean NOT NULL DEFAULT false,
