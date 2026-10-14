@@ -73,6 +73,7 @@ let server;
 let mainServer;
 let browser;
 let checks = 0;
+let fixtureReady = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); checks++; };
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 const organizationDateTime = daysAhead => {
@@ -144,6 +145,19 @@ async function cleanupStaleTestJobs() {
   }
 }
 
+async function waitForApiTable(table) {
+  const deadline = Date.now() + 10000;
+  let lastError;
+  while (Date.now() < deadline) {
+    const response = await admin.from(table).select('id').limit(0);
+    if (!response.error) return;
+    lastError = response.error;
+    if (lastError.code !== 'PGRST205') throw lastError;
+    await wait(250);
+  }
+  throw new Error(`PostgREST did not reload the ${table} table: ${JSON.stringify(lastError)}`);
+}
+
 const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013075939_hris_candidate_apply_rpc_source.sql'),
   path.join(mainRoot, 'supabase/migrations/20261014150000_hris_candidate_initial_application_history.sql'),
@@ -177,6 +191,9 @@ try {
   psql(readFileSync(path.join(mainRoot, 'tests/sql/candidate-c1/tenant-fixture.sql'), 'utf8'));
   psql(readFileSync(path.join(candidateRoot, 'tests/candidate-application-local-fixture.sql'), 'utf8'));
   for (const migration of migrationPaths) psql(readFileSync(migration, 'utf8'));
+  psql("NOTIFY pgrst, 'reload schema';");
+  await waitForApiTable('jobs');
+  fixtureReady = true;
   await cleanupStaleTestJobs();
   const idCollision = psql(`SELECT count(*) FROM public.jobs WHERE id IN (${sql(jobId)},${sql(otherTenantJobId)})`).trim();
   if (idCollision !== '0') throw new Error('Refusing to overwrite a local test job.');
@@ -260,6 +277,40 @@ try {
     person.session = login.data.session;
     person.client = signed;
     signedClients.push(signed);
+  }
+
+  // C1 security boundary: candidates and authorized staff use filtered RPCs;
+  // none of these principals may bypass them through direct Data API access.
+  const c1RestrictedTables = [
+    'candidate_application_stage_history', 'job_applications', 'interviews',
+    'candidate_assessments', 'candidate_document_requests', 'job_offers', 'onboarding_handoffs',
+  ];
+  const c1Principals = [
+    { client: anon, label: 'anonymous' },
+    { client: users[0].client, label: 'candidate A' },
+    { client: users[1].client, label: 'candidate B' },
+    { client: staff[0].client, label: 'tenant A recruitment manager' },
+    { client: staff[1].client, label: 'tenant A recruitment viewer' },
+    { client: staff[2].client, label: 'tenant B recruitment manager' },
+    { client: staff[3].client, label: 'tenant A employee manager' },
+  ];
+  let c1DirectDenied = 0;
+  for (const principal of c1Principals) {
+    for (const table of c1RestrictedTables) {
+      const targetId = randomUUID();
+      const requests = [
+        principal.client.from(table).select('id'),
+        principal.client.from(table).insert({ id: randomUUID() }),
+        principal.client.from(table).update({ id: randomUUID() }).eq('id', targetId),
+        principal.client.from(table).delete().eq('id', targetId),
+      ];
+      for (let index = 0; index < requests.length; index++) {
+        const response = await requests[index];
+        assert(response.error?.code === '42501',
+          `${principal.label} direct operation ${index + 1} on ${table} was not denied with 42501: ${JSON.stringify(response.error)}`);
+        c1DirectDenied++;
+      }
+    }
   }
 
   const foreignApplication = await admin.from('job_applications').insert({
@@ -1347,7 +1398,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=manager-authorized+tenant-scoped+same-auth+persisted+audited+idempotent unauthorized-activation=5-denied direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=manager-authorized+tenant-scoped+same-auth+persisted+audited+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } catch (cause) {
   console.error('CANDIDATE_APPLICATION_LOCAL_E2E ERROR:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
   throw cause;
@@ -1368,10 +1419,12 @@ try {
       throw cause;
     }
   }
-  try { await cleanupStaleTestJobs(); }
-  catch (cause) {
-    console.error('CANDIDATE_APPLICATION_LOCAL_E2E CLEANUP_ERROR stale_jobs:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
-    throw cause;
+  if (fixtureReady) {
+    try { await cleanupStaleTestJobs(); }
+    catch (cause) {
+      console.error('CANDIDATE_APPLICATION_LOCAL_E2E CLEANUP_ERROR stale_jobs:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
+      throw cause;
+    }
   }
   const usersAtEnd = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (usersAtEnd.error || usersAtEnd.data.users.length !== 0) {

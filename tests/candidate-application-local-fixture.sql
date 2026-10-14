@@ -3,20 +3,22 @@
 CREATE TABLE IF NOT EXISTS public.tenants (
   id uuid PRIMARY KEY,
   slug text NOT NULL UNIQUE,
+  code text NOT NULL UNIQUE,
   is_active boolean NOT NULL DEFAULT true,
   name text,
   timezone text
 );
 
+ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS code text;
 ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS name text;
 ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS timezone text;
 
-INSERT INTO public.tenants(id, slug, is_active, name, timezone)
+INSERT INTO public.tenants(id, slug, code, is_active, name, timezone)
 VALUES
-  ('22222222-2222-4222-8222-222222222222', 'synesis-it', true, 'Tenant A', 'Asia/Dhaka'),
-  ('33333333-3333-4333-8333-333333333333', 'c1-tenant-b', true, 'Tenant B', 'Asia/Dhaka')
+  ('22222222-2222-4222-8222-222222222222', 'synesis-it', 'C1-A', true, 'Tenant A', 'Asia/Dhaka'),
+  ('33333333-3333-4333-8333-333333333333', 'c1-tenant-b', 'C1-B', true, 'Tenant B', 'Asia/Dhaka')
 ON CONFLICT (slug) DO UPDATE
-SET name=EXCLUDED.name, timezone=EXCLUDED.timezone, is_active=EXCLUDED.is_active;
+SET code=EXCLUDED.code, name=EXCLUDED.name, timezone=EXCLUDED.timezone, is_active=EXCLUDED.is_active;
 ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ON public.tenants TO authenticated;
 
