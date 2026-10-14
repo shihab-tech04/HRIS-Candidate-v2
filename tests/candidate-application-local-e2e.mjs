@@ -1293,11 +1293,15 @@ try {
   assert(!(await employeeManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop employee activation journey overflows the viewport.');
   const activatedEmployee = await admin.from('employees').select('id,user_id,tenant_id,employee_number,full_name,official_email,joining_date,employment_status').eq('user_id', users[0].id).single();
   assert(!activatedEmployee.error && activatedEmployee.data.tenant_id === tenantA
-    && activatedEmployee.data.employee_number === employeeNumber && activatedEmployee.data.full_name === users[0].name
+    && activatedEmployee.data.employee_number === employeeNumber && activatedEmployee.data.full_name === application.full_name
     && activatedEmployee.data.official_email === users[0].email
     && activatedEmployee.data.joining_date === issueArguments.p_proposed_joining_date
     && activatedEmployee.data.employment_status === 'active',
   `HR activation did not persist the same Auth identity and confirmed employee details: ${JSON.stringify(activatedEmployee.error || activatedEmployee.data)}`);
+  const employeeTenantScope = await users[0].client.from('tenants').select('id');
+  assert(!employeeTenantScope.error && employeeTenantScope.data.length === 1
+    && employeeTenantScope.data[0].id === tenantA,
+  `Activated employee could not resolve only their own organization: ${JSON.stringify(employeeTenantScope.error || employeeTenantScope.data)}`);
   const activatedHandoff = await admin.from('onboarding_handoffs').select('status,verified_at,verified_by,employee_id').eq('application_id', application.id).single();
   assert(!activatedHandoff.error && activatedHandoff.data.status === 'completed' && activatedHandoff.data.verified_at
     && activatedHandoff.data.verified_by === staff[3].id && activatedHandoff.data.employee_id === activatedEmployee.data.id,
@@ -1320,8 +1324,9 @@ try {
   });
   await activatedEmployeePage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
   await activatedEmployeePage.getByRole('heading', { name: 'Personal Dashboard' }).waitFor({ timeout: 20000 });
-  assert(await activatedEmployeePage.getByText(users[0].name, { exact: false }).count() > 0,
-    'The candidate could not open their employee workspace using the original Auth identity.');
+  await activatedEmployeePage.getByRole('button', { name: 'My Overview', exact: true }).waitFor({ timeout: 20000 });
+  assert(await activatedEmployeePage.getByRole('button', { name: 'My Overview', exact: true }).isVisible(),
+    'The original candidate Auth session did not resolve to employee navigation after activation.');
   await employeeManagerContext.close();
   await activatedEmployeeContext.close();
 

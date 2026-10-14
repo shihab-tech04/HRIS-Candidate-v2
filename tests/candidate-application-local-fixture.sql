@@ -56,11 +56,6 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $fu
 $function$;
 REVOKE ALL ON FUNCTION public.has_tenant_permission(uuid,text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.has_tenant_permission(uuid,text) TO authenticated, service_role;
-CREATE POLICY c1_tenant_membership_read ON public.tenants FOR SELECT TO authenticated USING (
-  public.has_tenant_permission(tenants.id,'recruitment.view')
-  OR public.has_tenant_permission(tenants.id,'recruitment.manage')
-);
-
 CREATE OR REPLACE FUNCTION public.hris_admin_can_read_tenant(p_tenant_id uuid, p_permission_id text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $function$
   SELECT public.has_tenant_permission(p_tenant_id,p_permission_id);
@@ -101,6 +96,18 @@ DROP POLICY IF EXISTS c1_employee_read_own ON public.employees;
 CREATE POLICY c1_employee_read_own ON public.employees FOR SELECT TO authenticated USING(user_id=(SELECT auth.uid()));
 DROP POLICY IF EXISTS c1_admin_user_read_own ON public.admin_users;
 CREATE POLICY c1_admin_user_read_own ON public.admin_users FOR SELECT TO authenticated USING(user_id=(SELECT auth.uid()));
+CREATE POLICY c1_tenant_membership_read ON public.tenants FOR SELECT TO authenticated USING (
+  is_active IS TRUE AND public.is_live_session() AND (
+    public.has_tenant_permission(tenants.id,'recruitment.view')
+    OR public.has_tenant_permission(tenants.id,'recruitment.manage')
+    OR public.has_tenant_permission(tenants.id,'employees.manage')
+    OR EXISTS (
+      SELECT 1 FROM public.employees e
+      WHERE e.user_id=(SELECT auth.uid()) AND e.tenant_id=tenants.id
+        AND e.employment_status NOT IN ('resigned','terminated')
+    )
+  )
+);
 
 ALTER TABLE public.candidate_cvs
   ALTER COLUMN id SET DEFAULT gen_random_uuid(),
