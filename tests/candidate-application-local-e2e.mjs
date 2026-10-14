@@ -143,6 +143,7 @@ async function cleanupStaleTestJobs() {
 
 const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013075939_hris_candidate_apply_rpc_source.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261014150000_hris_candidate_initial_application_history.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013080630_hris_candidate_application_document.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013113718_hris_candidate_context_active_profile_tenant_scope.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013120355_hris_candidate_profile_rpcs_active_tenant_scope.sql'),
@@ -461,6 +462,19 @@ try {
     && application.application_data.required_document_map['Degree certificate'] === registeredDocument.id,
   'Required supporting document was not linked into the submitted application.');
   assert(application.application_data.answers.some(answer => answer.questionId === 'privacy-experience'), 'Screening answer was not stored in the HRIS application row.');
+  const submittedContext = await users[0].client.rpc('candidate_get_recruitment_context');
+  const submittedApplication = submittedContext.data?.applications?.find(row => row.id === application.id);
+  assert(!submittedContext.error && submittedApplication?.stage_history?.length === 1
+    && submittedApplication.stage_history[0].stage === 'applied'
+    && submittedApplication.stage_history[0].actor_type === 'candidate'
+    && !Object.hasOwn(submittedApplication.stage_history[0], 'actor_user_id'),
+  `Initial candidate submission history did not persist as a candidate-safe event: ${JSON.stringify(submittedContext.error || submittedApplication?.stage_history)}`);
+  await page.getByText('Application History', { exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Application history' }).getByText('Application Submitted', { exact: true }).waitFor();
+  const initialApplicationTimeline = await page.locator('body').innerText();
+  assert(!initialApplicationTimeline.includes('Application Screening')
+    && !initialApplicationTimeline.includes('Verified qualification criteria & resume mapping'),
+  'The candidate timeline displayed unverified screening milestones.');
   const draftAfterSubmit = await admin.from('candidate_application_drafts').select('id').eq('candidate_user_id', users[0].id).eq('job_id', jobId);
   assert(!draftAfterSubmit.error && draftAfterSubmit.data.length === 0, 'Successful submission did not clear the candidate draft.');
   const duplicate = await users[0].client.rpc('candidate_apply_to_job', {
@@ -578,7 +592,9 @@ try {
   const candidateAssessmentRead = await users[0].client.from('candidate_assessments').select('id').eq('id', assignedAssessment.data.id);
   assert(candidateAssessmentRead.error?.code === '42501', 'Candidate bypassed the owner-scoped assessment context with a direct table read.');
   const candidateBContext = await users[1].client.rpc('candidate_get_recruitment_context');
-  assert(!candidateBContext.error && (candidateBContext.data.assessments || []).length === 0, 'Candidate B received a Tenant A assessment in their owner-scoped context.');
+  assert(!candidateBContext.error && (candidateBContext.data.assessments || []).length === 0
+    && !(candidateBContext.data.applications || []).some(row => row.id === application.id),
+  'Candidate B received Candidate A application or assessment history in their owner-scoped context.');
   const candidateBCrossSubmit = await users[1].client.rpc('candidate_submit_assessment', {
     p_assessment_id: assignedAssessment.data.id, p_payload: { submission_text: 'cross-tenant attempt' },
   });
@@ -804,6 +820,23 @@ try {
   const duplicateOffer = await staff[0].client.rpc('hris_issue_candidate_offer', issueArguments);
   assert(duplicateOffer.error?.code === '23505', `A second open offer was not denied: ${JSON.stringify(duplicateOffer.error)}`);
 
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(`http://127.0.0.1:${webPort}/?view=applications`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
+  const mobileHistory = page.getByRole('region', { name: 'Application history' });
+  await mobileHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
+  await mobileHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });
+  const persistedTimeline = await page.locator('body').innerText();
+  assert(!persistedTimeline.includes('private recruiter') && !persistedTimeline.includes('panel note'),
+    'Candidate application history exposed internal recruiter notes.');
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile application history overflows the viewport.');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const desktopHistory = page.getByRole('region', { name: 'Application history' });
+  await desktopHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
+  await desktopHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop application history overflows the viewport.');
+
   const candidateOfferContexts = [];
   page.on('response', async response => {
     if (!response.url().includes('candidate_get_recruitment_context')) return;
@@ -956,7 +989,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } finally {
   if (browser) await browser.close();
   if (server && server.exitCode === null) {

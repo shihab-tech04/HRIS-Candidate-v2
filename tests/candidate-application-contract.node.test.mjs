@@ -57,6 +57,33 @@ test('live flat application DTO maps job title, department, status, and screenin
   assert.equal(app.submitted_at, '2026-10-13T08:00:00.000Z');
 });
 
+test('live application DTO preserves candidate-visible persisted history and drops internal notes', () => {
+  const app = adaptLiveApplication({
+    id: 'application-history-1', candidate_user_id: 'candidate-1', job_id: 'job-1',
+    stage: 'interview_scheduled', applied_at: '2026-10-13T08:00:00.000Z',
+    application_data: {},
+    stage_history: [
+      { id: 'history-1', application_id: 'application-history-1', stage: 'applied', note: 'Application submitted.', actor_type: 'candidate', actor_user_id: 'candidate-1', created_at: '2026-10-13T08:00:00.000Z' },
+      { id: 'history-2', application_id: 'application-history-1', stage: 'interview_scheduled', note: 'private recruiter panel note', actor_type: 'recruiter', actor_user_id: 'recruiter-1', created_at: '2026-10-13T10:00:00.000Z' },
+    ],
+  });
+
+  assert.deepEqual(app.stage_history, [
+    { id: 'history-1', application_id: 'application-history-1', stage: 'applied', created_at: '2026-10-13T08:00:00.000Z', note: 'Application submitted.' },
+    { id: 'history-2', application_id: 'application-history-1', stage: 'interview_scheduled', created_at: '2026-10-13T10:00:00.000Z' },
+  ]);
+  assert.equal(JSON.stringify(app).includes('private recruiter panel note'), false);
+  assert.equal(JSON.stringify(app).includes('recruiter-1'), false);
+});
+
+test('application page renders stored stage history rather than inferred screening milestones', () => {
+  const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
+  assert.match(applicationsPage, /app\.stage_history/);
+  assert.match(applicationsPage, /Application History/);
+  assert.match(applicationsPage, /No application history updates are available yet/);
+  assert.doesNotMatch(applicationsPage, /Verified qualification criteria & resume mapping/);
+});
+
 test('fresh local application journey creates its schema before cleaning stale test jobs', () => {
   const baseSchemaAt = localJourney.indexOf("psql(readFileSync(path.join(mainRoot, 'tests/sql/candidate-c1/tenant-fixture.sql'), 'utf8'))");
   const fixtureAt = localJourney.indexOf("psql(readFileSync(path.join(candidateRoot, 'tests/candidate-application-local-fixture.sql'), 'utf8'))");
@@ -73,10 +100,14 @@ test('fresh local application journey creates its schema before cleaning stale t
     'No table cleanup runs against an uninitialized database.');
   assert.doesNotMatch(localJourney.slice(0, baseSchemaAt), /SELECT count\(\) FROM public\.jobs/,
     'No job-table query runs before the disposable schema is initialized.');
+  assert.match(localJourney, /20261014150000_hris_candidate_initial_application_history\.sql/,
+    'The local Auth/Postgres application journey applies the persisted-history source fix.');
 });
 
 test('local preboarding tenant policy is created only after its permission helper exists', () => {
   const helperAt = localFixture.indexOf('CREATE OR REPLACE FUNCTION public.has_tenant_permission');
   const policyAt = localFixture.indexOf('CREATE POLICY c1_tenant_membership_read');
   assert.ok(helperAt >= 0 && helperAt < policyAt, 'Tenant helper is defined before the policy calls it.');
+  assert.match(localFixture, /ON CONFLICT \(slug\) DO UPDATE[\s\S]+timezone=EXCLUDED\.timezone/,
+    'The disposable tenant fixture reapplies its declared organization timezone on reruns.');
 });

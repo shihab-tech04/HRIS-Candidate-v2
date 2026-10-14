@@ -143,15 +143,15 @@ export interface JobApplication {
   updated_at: string;
   withdrawal_reason?: string;
   withdrawn_at?: string;
+  stage_history?: ApplicationStageHistory[];
 }
 
 export interface ApplicationStageHistory {
   id: string;
   application_id: string;
-  stage_name: string;
-  stage_date: string;
-  candidate_visible_status: string;
-  candidate_notes?: string;
+  stage: string;
+  created_at: string;
+  note?: string;
 }
 
 export interface InterviewInvitation {

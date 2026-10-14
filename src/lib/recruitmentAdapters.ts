@@ -169,6 +169,23 @@ export function adaptLiveApplication(row: Row): JobApplication {
       ? [[answer.questionId, answer.answer]] : []
   ));
   const status = applicationStatus(row);
+  const stageHistory = asRows(row.stage_history).flatMap((item): NonNullable<JobApplication['stage_history']> => {
+    const stage = asText(item.stage).trim();
+    const createdAt = asText(item.created_at);
+    const id = asText(item.id);
+    const applicationId = asText(item.application_id);
+    if (!stage || !createdAt || !id || !applicationId) return [];
+    const entry = {
+      id,
+      application_id: applicationId,
+      stage,
+      created_at: createdAt,
+      // Candidate-visible notes are only emitted by the server for candidate-authored events.
+      ...(item.actor_type === 'candidate' && typeof item.note === 'string' && item.note.trim()
+        ? { note: item.note } : {}),
+    };
+    return [entry];
+  });
   return {
     id: asText(row.id),
     user_id: asText(row.candidate_user_id),
@@ -185,6 +202,8 @@ export function adaptLiveApplication(row: Row): JobApplication {
     consent_given: (data.declarations as Row | undefined)?.recruitmentDataConsent === true,
     submitted_at: asText(row.applied_at || row.submitted_at),
     updated_at: asText(row.updated_at || row.applied_at || row.submitted_at),
+    withdrawal_reason: status === 'withdrawn' ? asText(row.status_note) || undefined : undefined,
+    stage_history: stageHistory,
   };
 }
 export function adaptLiveRecruitmentContext(raw: unknown): Record<string, any> & {offers:JobOffer[];interviews:InterviewInvitation[];document_requests:CandidateDocumentRequest[]} {

@@ -40,6 +40,30 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
   const [withdrawing, setWithdrawing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const stageLabel = (stage: string) => {
+    const labels: Record<string, string> = {
+      applied: 'Application Submitted',
+      submitted: 'Application Submitted',
+      under_review: 'Under Review',
+      screening: 'Screening in Progress',
+      interview_scheduled: 'Interview Scheduled',
+      assessment_pending: 'Assessment Pending',
+      offer_extended: 'Offer Extended',
+      offer_accepted: 'Offer Accepted',
+      offer_declined: 'Offer Declined',
+      withdrawn: 'Application Withdrawn',
+      rejected: 'Not Selected',
+      hired: 'Hired',
+    };
+    const key = stage.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+    return labels[key] || stage.trim().replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+  };
+
+  const timelineDate = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString();
+  };
+
   useEffect(() => {
     loadApplications();
   }, [user]);
@@ -146,7 +170,17 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                   {/* Card Header Summary */}
                   <div
                     onClick={() => setExpandedAppId(isExpanded ? null : app.id)}
-                    className="p-5 sm:p-6 cursor-pointer hover:bg-slate-50/50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    onKeyDown={event => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setExpandedAppId(isExpanded ? null : app.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    aria-controls={`application-history-${app.id}`}
+                    className="p-5 sm:p-6 cursor-pointer hover:bg-slate-50/50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#085587]"
                   >
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -184,68 +218,31 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                   {/* Expanded Detail Body */}
                   {isExpanded && (
                     <div className="border-t border-slate-100 p-5 sm:p-6 bg-slate-50/50 space-y-6">
-                      {/* Authorized Stage Progression Timeline */}
-                      <div>
+                      <section id={`application-history-${app.id}`} aria-label="Application history">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">
-                          Permitted Recruitment Timeline
+                          Application History
                         </h3>
                         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-4">
-                          {/* Milestone 1 */}
-                          <div className="flex items-start gap-3">
-                            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
-                              <CheckCircle2 className="w-4 h-4" />
-                            </div>
-                            <div className="text-xs">
-                              <p className="font-bold text-slate-900">Application Submitted</p>
-                              <p className="text-slate-500">
-                                {new Date(app.submitted_at).toLocaleString()} · Logged to Synesis HRMIS
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Milestone 2: Screening */}
-                          <div className="flex items-start gap-3">
-                            <div
-                              className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                isWithdrawn
-                                  ? 'bg-slate-100 text-slate-400'
-                                  : 'bg-emerald-100 text-emerald-700'
-                              }`}
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </div>
-                            <div className="text-xs">
-                              <p className="font-bold text-slate-900">Application Screening</p>
-                              <p className="text-slate-500">
-                                Verified qualification criteria & resume mapping
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Milestone 3: Current State */}
-                          <div className="flex items-start gap-3">
-                            <div
-                              className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                isWithdrawn
-                                  ? 'bg-slate-200 text-slate-500'
-                                  : 'bg-sky-100 text-[#085587] ring-4 ring-sky-50'
-                              }`}
-                            >
-                              <Clock className="w-4 h-4" />
-                            </div>
-                            <div className="text-xs">
-                              <p className="font-bold text-slate-900">
-                                {app.stage_label || app.candidate_visible_status}
-                              </p>
-                              <p className="text-slate-500">
-                                {isWithdrawn
-                                  ? `Application withdrawn: ${app.withdrawal_reason || 'Candidate choice'}`
-                                  : 'Current active stage milestone'}
-                              </p>
-                            </div>
-                          </div>
+                          {(app.stage_history || []).length === 0 ? (
+                            <p role="status" className="text-xs text-slate-500">No application history updates are available yet.</p>
+                          ) : app.stage_history?.map((entry, index) => {
+                            const current = index === (app.stage_history?.length || 0) - 1;
+                            const withdrawn = entry.stage.toLowerCase() === 'withdrawn';
+                            return <div key={entry.id} className="flex items-start gap-3">
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                withdrawn ? 'bg-slate-100 text-slate-500' : current ? 'bg-sky-100 text-[#085587] ring-4 ring-sky-50' : 'bg-emerald-100 text-emerald-700'
+                              }`}>
+                                {current ? <Clock className="w-4 h-4" /> : withdrawn ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                              </div>
+                              <div className="min-w-0 text-xs">
+                                <p className="font-bold text-slate-900">{stageLabel(entry.stage)}</p>
+                                <p className="text-slate-500">{timelineDate(entry.created_at)}</p>
+                                {entry.note && <p className="mt-1 break-words text-slate-600">{entry.note}</p>}
+                              </div>
+                            </div>;
+                          })}
                         </div>
-                      </div>
+                      </section>
 
                       {/* Application Snapshot & Answers */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
