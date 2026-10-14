@@ -324,6 +324,10 @@ try {
   let expectedSavedJobLookupFailureObserved = false;
   let expectedDetailsJobLoadFailure = false;
   let expectedDetailsJobLoadFailureObserved = false;
+  let expectedJobAlertSaveFailure = false;
+  let expectedJobAlertSaveFailureObserved = false;
+  let expectedNotificationLoadFailure = false;
+  let expectedNotificationLoadFailureObserved = false;
   const networkDiagnostics = [];
   mobilePage.on('pageerror', error => browserErrors.push(error.message));
   mobilePage.on('console', message => {
@@ -333,7 +337,11 @@ try {
       && (message.text().includes('/rest/v1/candidate_saved_jobs') || messageUrl.includes('/rest/v1/candidate_saved_jobs'))
       && (message.text().includes('select=id') || messageUrl.includes('select=id')))
       || (expectedDetailsJobLoadFailure
-        && (message.text().includes('/rest/v1/candidate_published_jobs') || messageUrl.includes('/rest/v1/candidate_published_jobs')));
+        && (message.text().includes('/rest/v1/candidate_published_jobs') || messageUrl.includes('/rest/v1/candidate_published_jobs')))
+      || (expectedJobAlertSaveFailure
+        && (message.text().includes('/rest/v1/candidate_job_alerts') || messageUrl.includes('/rest/v1/candidate_job_alerts')))
+      || (expectedNotificationLoadFailure
+        && (message.text().includes('/rest/v1/candidate_notifications') || messageUrl.includes('/rest/v1/candidate_notifications')));
     if (!intentionalSavedJobFault) browserErrors.push(`console: ${message.text()} at ${message.location().url || 'unknown URL'}`);
   });
   mobilePage.on('requestfailed', request => {
@@ -342,12 +350,24 @@ try {
       && request.url().includes('select=id');
     const intentionalDetailsJobFault = expectedDetailsJobLoadFailure
       && request.url().includes('/rest/v1/candidate_published_jobs');
+    const intentionalJobAlertFault = expectedJobAlertSaveFailure
+      && request.url().includes('/rest/v1/candidate_job_alerts');
+    const intentionalNotificationFault = expectedNotificationLoadFailure
+      && request.url().includes('/rest/v1/candidate_notifications');
     if (intentionalSavedJobFault) {
       expectedSavedJobLookupFailureObserved = true;
       return;
     }
     if (intentionalDetailsJobFault) {
       expectedDetailsJobLoadFailureObserved = true;
+      return;
+    }
+    if (intentionalJobAlertFault) {
+      expectedJobAlertSaveFailureObserved = true;
+      return;
+    }
+    if (intentionalNotificationFault) {
+      expectedNotificationLoadFailureObserved = true;
       return;
     }
     browserErrors.push(`request failed: ${request.url()} — ${request.failure()?.errorText || 'unknown error'}`);
@@ -399,6 +419,94 @@ try {
   await secondCandidatePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
   assert(!(await secondCandidatePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Second-client saved-jobs view overflows the desktop viewport.');
   await secondCandidateClient.close();
+
+  await mobilePage.getByRole('heading', { name: 'Create a job alert' }).waitFor({ timeout: 20000 });
+  const jobAlertEndpoint = /\/rest\/v1\/candidate_job_alerts(?:\?.*)?$/;
+  await mobilePage.getByLabel('Alert name').fill('Platform roles in Dhaka');
+  await mobilePage.getByLabel('Keywords').fill('PostgreSQL');
+  await mobilePage.getByLabel('Department').fill('Engineering');
+  await mobilePage.getByLabel('Location').fill('Dhaka');
+  await mobilePage.getByLabel('Workplace type').selectOption('Hybrid');
+  await mobilePage.getByLabel('Employment type').selectOption('Full-time');
+  await mobilePage.route(jobAlertEndpoint, route => route.abort());
+  expectedJobAlertSaveFailure = true;
+  await mobilePage.getByRole('button', { name: 'Save job alert' }).click();
+  await mobilePage.getByRole('alert').getByRole('button', { name: 'Retry' }).waitFor({ timeout: 20000 });
+  await mobilePage.unroute(jobAlertEndpoint);
+  assert(expectedJobAlertSaveFailureObserved, 'Job-alert creation did not expose the simulated transient save failure.');
+  await mobilePage.getByRole('button', { name: 'Save job alert' }).click();
+  await mobilePage.getByRole('status').filter({ hasText: 'is active. Matching newly published roles' }).waitFor({ timeout: 20000 });
+  expectedJobAlertSaveFailure = false;
+  const candidateAAlert = await admin.from('candidate_job_alerts')
+    .select('id,candidate_user_id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active')
+    .eq('candidate_user_id', users[0].id).single();
+  assert(!candidateAAlert.error && candidateAAlert.data.title === 'Platform roles in Dhaka'
+    && candidateAAlert.data.keywords === 'PostgreSQL' && candidateAAlert.data.department === 'Engineering'
+    && candidateAAlert.data.location === 'Dhaka' && candidateAAlert.data.workplace_type === 'Hybrid'
+    && candidateAAlert.data.employment_type === 'Full-time' && candidateAAlert.data.frequency === 'Instant'
+    && candidateAAlert.data.is_active,
+  `Candidate alert filters did not persist to the isolated production-shaped table: ${JSON.stringify(candidateAAlert.error)}`);
+  const candidateBCannotReadAlert = await users[1].client.from('candidate_job_alerts').select('id')
+    .eq('candidate_user_id', users[0].id);
+  assert(!candidateBCannotReadAlert.error && candidateBCannotReadAlert.data.length === 0,
+    'Candidate B could read Candidate A job alerts.');
+  const candidateBForeignAlert = await users[1].client.from('candidate_job_alerts')
+    .insert({ candidate_user_id: users[0].id, title: 'Foreign alert' });
+  assert(candidateBForeignAlert.error?.code === '42501', 'Candidate B could create an alert owned by Candidate A.');
+  const invalidAlertFrequency = await users[1].client.from('candidate_job_alerts')
+    .insert({ candidate_user_id: users[1].id, title: 'Invalid frequency', frequency: 'Daily' });
+  assert(invalidAlertFrequency.error?.code === '23514', 'Non-Instant alert frequency was not rejected by the database.');
+  const anonymousAlerts = await anon.from('candidate_job_alerts').select('id');
+  assert(Boolean(anonymousAlerts.error), 'Anonymous sessions could read private candidate alerts.');
+
+  const retriggerMatchingJob = await admin.from('jobs').update({ published_at: new Date().toISOString() }).eq('id', jobId);
+  if (retriggerMatchingJob.error) throw retriggerMatchingJob.error;
+  const jobAlertNotification = await admin.from('candidate_notifications')
+    .select('id,candidate_user_id,title,message,notification_type,related_job_id,action_view,is_read')
+    .eq('candidate_user_id', users[0].id).eq('notification_type', 'job_alert_match').eq('related_job_id', jobId).single();
+  assert(!jobAlertNotification.error && jobAlertNotification.data.title === 'New job matches your alert'
+    && jobAlertNotification.data.message === 'Senior Systems Engineer matches your job alert.'
+    && jobAlertNotification.data.action_view === 'job-detail' && !jobAlertNotification.data.is_read,
+  `Matching job trigger did not create the expected in-app notification: ${JSON.stringify(jobAlertNotification.error)}`);
+  const duplicateMatchTrigger = await admin.from('jobs').update({ published_at: new Date().toISOString() }).eq('id', jobId);
+  if (duplicateMatchTrigger.error) throw duplicateMatchTrigger.error;
+  const matchingNotificationCount = await admin.from('candidate_notifications').select('id', { count: 'exact', head: true })
+    .eq('candidate_user_id', users[0].id).eq('notification_type', 'job_alert_match').eq('related_job_id', jobId);
+  assert(!matchingNotificationCount.error && matchingNotificationCount.count === 1,
+    'Repeated matching-job updates created duplicate alert notifications.');
+  const candidateBCannotReadNotification = await users[1].client.from('candidate_notifications').select('id')
+    .eq('candidate_user_id', users[0].id);
+  assert(!candidateBCannotReadNotification.error && candidateBCannotReadNotification.data.length === 0,
+    'Candidate B could read Candidate A job notifications.');
+  const candidateBCannotMarkNotificationRead = await users[1].client.from('candidate_notifications')
+    .update({ is_read: true }).eq('id', jobAlertNotification.data.id).eq('candidate_user_id', users[0].id).select('id');
+  assert(!candidateBCannotMarkNotificationRead.error && candidateBCannotMarkNotificationRead.data.length === 0,
+    'Candidate B could mark Candidate A notifications as read.');
+  const anonymousNotifications = await anon.from('candidate_notifications').select('id');
+  assert(Boolean(anonymousNotifications.error), 'Anonymous sessions could read private candidate notifications.');
+
+  const notificationsEndpoint = /\/rest\/v1\/candidate_notifications\?/;
+  await mobilePage.route(notificationsEndpoint, route => route.abort());
+  expectedNotificationLoadFailure = true;
+  await mobilePage.reload({ waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('alert').getByRole('button', { name: 'Retry' }).waitFor({ timeout: 20000 });
+  await mobilePage.unroute(notificationsEndpoint);
+  assert(expectedNotificationLoadFailureObserved, 'Notification loading did not expose the simulated transient read failure.');
+  await mobilePage.getByRole('alert').getByRole('button', { name: 'Retry' }).click();
+  await mobilePage.getByRole('heading', { name: 'New job matches your alert' }).waitFor({ timeout: 20000 });
+  expectedNotificationLoadFailure = false;
+  const markNotificationReadButton = mobilePage.getByRole('button', { name: 'Mark read' });
+  await markNotificationReadButton.click();
+  await mobilePage.getByText(/· Read$/).waitFor({ timeout: 20000 });
+  const persistedReadState = await admin.from('candidate_notifications').select('is_read')
+    .eq('id', jobAlertNotification.data.id).single();
+  assert(!persistedReadState.error && persistedReadState.data.is_read,
+    'Candidate notification read state did not persist.');
+  await mobilePage.getByRole('button', { name: 'View job' }).click();
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+
   const savedJobLookupEndpoint = /\/rest\/v1\/candidate_saved_jobs\?.*select=id/;
   await mobilePage.route(savedJobLookupEndpoint, route => route.abort());
   expectedSavedJobLookupFailure = true;

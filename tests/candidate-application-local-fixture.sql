@@ -142,6 +142,132 @@ CREATE POLICY c1_apply_saved_jobs_insert_own ON public.candidate_saved_jobs
 CREATE POLICY c1_apply_saved_jobs_delete_own ON public.candidate_saved_jobs
   FOR DELETE TO authenticated USING (candidate_user_id=(SELECT auth.uid()));
 
+-- Production-shaped candidate alerts and in-app notification access for this
+-- disposable test stack. Production schema/policies are inspected read-only;
+-- this fixture never changes the linked Supabase project.
+ALTER TABLE public.candidate_job_alerts
+  ALTER COLUMN id SET DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS candidate_user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS title text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS keywords text,
+  ADD COLUMN IF NOT EXISTS department text,
+  ADD COLUMN IF NOT EXISTS location text,
+  ADD COLUMN IF NOT EXISTS workplace_type text,
+  ADD COLUMN IF NOT EXISTS employment_type text,
+  ADD COLUMN IF NOT EXISTS frequency text NOT NULL DEFAULT 'Instant',
+  ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE public.candidate_job_alerts ALTER COLUMN candidate_user_id SET NOT NULL;
+DO $do$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid='public.candidate_job_alerts'::regclass
+      AND conname='c1_candidate_job_alerts_frequency_check'
+  ) THEN
+    ALTER TABLE public.candidate_job_alerts
+      ADD CONSTRAINT c1_candidate_job_alerts_frequency_check CHECK (frequency='Instant');
+  END IF;
+END;
+$do$;
+REVOKE ALL ON TABLE public.candidate_job_alerts FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.candidate_job_alerts TO authenticated;
+GRANT ALL ON TABLE public.candidate_job_alerts TO service_role;
+ALTER TABLE public.candidate_job_alerts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS c1_candidate_job_alerts_own ON public.candidate_job_alerts;
+CREATE POLICY c1_candidate_job_alerts_own ON public.candidate_job_alerts
+  FOR ALL TO authenticated
+  USING (candidate_user_id=(SELECT auth.uid()))
+  WITH CHECK (candidate_user_id=(SELECT auth.uid()));
+
+ALTER TABLE public.candidate_notifications
+  ALTER COLUMN id SET DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS candidate_user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS title text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS message text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS notification_type text NOT NULL DEFAULT 'system',
+  ADD COLUMN IF NOT EXISTS related_application_id uuid,
+  ADD COLUMN IF NOT EXISTS related_job_id uuid REFERENCES public.jobs(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS action_view text,
+  ADD COLUMN IF NOT EXISTS is_read boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE public.candidate_notifications ALTER COLUMN candidate_user_id SET NOT NULL;
+REVOKE ALL ON TABLE public.candidate_notifications FROM PUBLIC, anon;
+GRANT SELECT, UPDATE ON TABLE public.candidate_notifications TO authenticated;
+GRANT ALL ON TABLE public.candidate_notifications TO service_role;
+ALTER TABLE public.candidate_notifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS c1_candidate_notifications_read_own ON public.candidate_notifications;
+DROP POLICY IF EXISTS c1_candidate_notifications_update_own ON public.candidate_notifications;
+CREATE POLICY c1_candidate_notifications_read_own ON public.candidate_notifications
+  FOR SELECT TO authenticated USING (candidate_user_id=(SELECT auth.uid()));
+CREATE POLICY c1_candidate_notifications_update_own ON public.candidate_notifications
+  FOR UPDATE TO authenticated USING (candidate_user_id=(SELECT auth.uid()))
+  WITH CHECK (candidate_user_id=(SELECT auth.uid()));
+
+-- Local acceptance analogue of the existing production job-match trigger.
+-- The tested rule is exact: active same-tenant profiles, active Instant alerts,
+-- and all optional filters must match before an in-app notice is inserted.
+CREATE OR REPLACE FUNCTION public.c1_notify_matching_job_alerts()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=pg_catalog, public
+AS $function$
+BEGIN
+  IF NEW.tenant_id IS DISTINCT FROM public.synesis_tenant_id()
+    OR NEW.status <> 'published'
+    OR NEW.is_published IS DISTINCT FROM true
+    OR NEW.is_active IS DISTINCT FROM true
+    OR (NEW.application_deadline IS NOT NULL AND NEW.application_deadline < current_date) THEN
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.candidate_notifications
+    (candidate_user_id, title, message, notification_type, related_job_id, action_view)
+  SELECT alert.candidate_user_id,
+    'New job matches your alert',
+    NEW.title || ' matches your job alert.',
+    'job_alert_match', NEW.id, 'job-detail'
+  FROM public.candidate_job_alerts alert
+  JOIN public.candidate_profiles profile
+    ON profile.user_id=alert.candidate_user_id
+   AND profile.tenant_id=NEW.tenant_id
+   AND profile.profile_status='active'
+  WHERE alert.is_active=true
+    AND alert.frequency='Instant'
+    AND (alert.department IS NULL OR lower(alert.department)=lower(COALESCE(NEW.department_name,'')))
+    AND (alert.location IS NULL OR lower(alert.location)=lower(COALESCE(NEW.location_name,'')))
+    AND (alert.workplace_type IS NULL OR lower(alert.workplace_type)=lower(COALESCE(NEW.workplace_type,'')))
+    AND (alert.employment_type IS NULL OR lower(alert.employment_type)=lower(COALESCE(NEW.employment_type,'')))
+    AND (
+      nullif(btrim(COALESCE(alert.keywords,'')),'') IS NULL
+      OR EXISTS (
+        SELECT 1 FROM regexp_split_to_table(alert.keywords, '\s*,\s*') keyword
+        WHERE nullif(btrim(keyword),'') IS NOT NULL
+          AND (NEW.title ILIKE '%' || btrim(keyword) || '%'
+            OR COALESCE(NEW.department_name,'') ILIKE '%' || btrim(keyword) || '%'
+            OR EXISTS (
+              SELECT 1 FROM unnest(NEW.skills) skill
+              WHERE skill ILIKE '%' || btrim(keyword) || '%'
+            ))
+      )
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM public.candidate_notifications existing
+      WHERE existing.candidate_user_id=alert.candidate_user_id
+        AND existing.related_job_id=NEW.id
+        AND existing.notification_type='job_alert_match'
+    );
+  RETURN NEW;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.c1_notify_matching_job_alerts() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.c1_notify_matching_job_alerts() TO service_role;
+DROP TRIGGER IF EXISTS c1_candidate_job_alert_match_notification ON public.jobs;
+CREATE TRIGGER c1_candidate_job_alert_match_notification
+  AFTER INSERT OR UPDATE ON public.jobs
+  FOR EACH ROW EXECUTE FUNCTION public.c1_notify_matching_job_alerts();
+
 CREATE UNIQUE INDEX IF NOT EXISTS c1_apply_candidate_drafts_user_job_uq
   ON public.candidate_application_drafts(candidate_user_id, job_id);
 DO $do$

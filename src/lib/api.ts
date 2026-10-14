@@ -1254,3 +1254,111 @@ export async function toggleVerifiedSavedJob(userId: string, jobId: string, demo
   if (response.error) throw new Error(response.error.message);
   return true;
 }
+
+export type VerifiedCandidateJobAlert = {
+  id: string;
+  title: string;
+  keywords: string | null;
+  department: string | null;
+  location: string | null;
+  workplace_type: string | null;
+  employment_type: string | null;
+  frequency: 'Instant';
+  is_active: boolean;
+  created_at: string;
+};
+
+export type VerifiedCandidateJobAlertInput = Pick<VerifiedCandidateJobAlert,
+  'title' | 'keywords' | 'department' | 'location' | 'workplace_type' | 'employment_type'>;
+
+export type VerifiedCandidateNotification = {
+  id: string;
+  title: string;
+  message: string;
+  related_job_id: string | null;
+  is_read: boolean;
+  created_at: string;
+};
+
+/** Live candidate alerts use the verified production table and owner-bound RLS. */
+export async function listVerifiedCandidateJobAlerts(userId: string): Promise<VerifiedCandidateJobAlert[]> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_job_alerts')
+    .select('id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active,created_at')
+    .eq('candidate_user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []).map(row => ({
+    id: String(row.id),
+    title: String(row.title || ''),
+    keywords: row.keywords == null ? null : String(row.keywords),
+    department: row.department == null ? null : String(row.department),
+    location: row.location == null ? null : String(row.location),
+    workplace_type: row.workplace_type == null ? null : String(row.workplace_type),
+    employment_type: row.employment_type == null ? null : String(row.employment_type),
+    frequency: 'Instant',
+    is_active: row.is_active === true,
+    created_at: String(row.created_at || ''),
+  }));
+}
+
+export async function createVerifiedCandidateJobAlert(
+  userId: string, input: VerifiedCandidateJobAlertInput
+): Promise<VerifiedCandidateJobAlert> {
+  const sb = await authorizedCandidate(userId);
+  const title = input.title.trim();
+  if (!title) throw new Error('Enter a name for this job alert.');
+  const nullableText = (value: string | null) => value?.trim() || null;
+  const { data, error } = await sb.from('candidate_job_alerts').insert({
+    candidate_user_id: userId,
+    title,
+    keywords: nullableText(input.keywords),
+    department: nullableText(input.department),
+    location: nullableText(input.location),
+    workplace_type: nullableText(input.workplace_type),
+    employment_type: nullableText(input.employment_type),
+    frequency: 'Instant',
+    is_active: true,
+  }).select('id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active,created_at')
+    .single();
+  if (error || !data) throw new Error(error?.message || 'Job alert was not saved.');
+  return {
+    id: String(data.id), title: String(data.title || ''),
+    keywords: data.keywords == null ? null : String(data.keywords),
+    department: data.department == null ? null : String(data.department),
+    location: data.location == null ? null : String(data.location),
+    workplace_type: data.workplace_type == null ? null : String(data.workplace_type),
+    employment_type: data.employment_type == null ? null : String(data.employment_type),
+    frequency: 'Instant', is_active: data.is_active === true, created_at: String(data.created_at || ''),
+  };
+}
+
+export async function deleteVerifiedCandidateJobAlert(userId: string, alertId: string): Promise<void> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_job_alerts').delete()
+    .eq('id', alertId).eq('candidate_user_id', userId).select('id').maybeSingle();
+  if (error || !data) throw new Error(error?.message || 'Job alert is no longer available.');
+}
+
+/** Job-match notices are created by the existing database trigger, never by the candidate client. */
+export async function listVerifiedJobAlertNotifications(userId: string): Promise<VerifiedCandidateNotification[]> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_notifications')
+    .select('id,title,message,related_job_id,is_read,created_at')
+    .eq('candidate_user_id', userId).eq('notification_type', 'job_alert_match')
+    .order('created_at', { ascending: false }).limit(50);
+  if (error) throw new Error(error.message);
+  return (data || []).map(row => ({
+    id: String(row.id), title: String(row.title || ''), message: String(row.message || ''),
+    related_job_id: row.related_job_id == null ? null : String(row.related_job_id),
+    is_read: row.is_read === true, created_at: String(row.created_at || ''),
+  }));
+}
+
+export async function markVerifiedJobAlertNotificationRead(userId: string, notificationId: string): Promise<void> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_notifications').update({ is_read: true })
+    .eq('id', notificationId).eq('candidate_user_id', userId)
+    .eq('notification_type', 'job_alert_match').select('id').maybeSingle();
+  if (error || !data) throw new Error(error?.message || 'Notification is no longer available.');
+}
