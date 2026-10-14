@@ -123,11 +123,15 @@ ALTER TABLE public.candidate_saved_jobs
   ADD COLUMN IF NOT EXISTS candidate_user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
   ADD COLUMN IF NOT EXISTS job_id uuid,
   ADD COLUMN IF NOT EXISTS saved_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE public.candidate_saved_jobs
+  ALTER COLUMN candidate_user_id SET NOT NULL,
+  ALTER COLUMN job_id SET NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS c1_apply_saved_jobs_user_job_uq
   ON public.candidate_saved_jobs(candidate_user_id, job_id);
 ALTER TABLE public.candidate_saved_jobs ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.candidate_saved_jobs FROM PUBLIC, anon;
 GRANT SELECT, INSERT, DELETE ON TABLE public.candidate_saved_jobs TO authenticated;
+GRANT ALL ON TABLE public.candidate_saved_jobs TO service_role;
 DROP POLICY IF EXISTS c1_apply_saved_jobs_select_own ON public.candidate_saved_jobs;
 DROP POLICY IF EXISTS c1_apply_saved_jobs_insert_own ON public.candidate_saved_jobs;
 DROP POLICY IF EXISTS c1_apply_saved_jobs_delete_own ON public.candidate_saved_jobs;

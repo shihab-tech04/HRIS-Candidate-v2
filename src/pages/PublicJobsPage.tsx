@@ -39,6 +39,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savedJobsError, setSavedJobsError] = useState<string | null>(null);
+  const [savedJobsStatus, setSavedJobsStatus] = useState('');
   const [search, setSearch] = useState('');
   const [submittedSearch, setSubmittedSearch] = useState('');
   const [searchVersion, setSearchVersion] = useState(0);
@@ -46,7 +47,10 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   const [workplaceType, setWorkplaceType] = useState('All');
   const [employmentType, setEmploymentType] = useState('All');
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set());
+  const [savingJobIds, setSavingJobIds] = useState<Set<string>>(new Set());
   const requestGate = useRef(createLatestRequestGate()).current;
+  const activeUserId = useRef(user?.id);
+  activeUserId.current = user?.id;
 
   useEffect(() => {
     const request = requestGate.open();
@@ -72,7 +76,9 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   useEffect(() => {
     let active = true;
     setSavedJobIds(new Set());
+    setSavingJobIds(new Set());
     setSavedJobsError(null);
+    setSavedJobsStatus('');
     if (user && !publicOnly) {
       void listVerifiedSavedJobIds(user.id)
         .then(ids => { if (active) setSavedJobIds(new Set(ids)); })
@@ -92,15 +98,31 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   const handleToggleSave = async (job: PublishedJob, e: React.MouseEvent) => {
     e.stopPropagation();
     if (publicOnly || !user) { onOpenAuth(); return; }
+    const userId = user.id;
+    if (savingJobIds.has(job.id)) return;
+    setSavingJobIds(prev => new Set(prev).add(job.id));
+    setSavedJobsError(null);
+    setSavedJobsStatus('');
     try {
-      const saved=await toggleVerifiedSavedJob(user.id,job.id,job);
-      setSavedJobIds(prev => {
-        const next=new Set(prev);
-        if (saved) next.add(job.id); else next.delete(job.id);
-        return next;
-      });
+      const saved=await toggleVerifiedSavedJob(userId,job.id,job);
+      if (activeUserId.current === userId) {
+        setSavedJobIds(prev => {
+          const next=new Set(prev);
+          if (saved) next.add(job.id); else next.delete(job.id);
+          return next;
+        });
+        setSavedJobsStatus(saved ? `${job.title} was saved to your account.` : `${job.title} was removed from saved jobs.`);
+      }
     } catch (e) {
-      setSavedJobsError(e instanceof Error ? e.message : 'Unable to update saved job.');
+      if (activeUserId.current === userId) setSavedJobsError(e instanceof Error ? e.message : 'Unable to update saved job.');
+    } finally {
+      if (activeUserId.current === userId) {
+        setSavingJobIds(prev => {
+          const next=new Set(prev);
+          next.delete(job.id);
+          return next;
+        });
+      }
     }
   };
 
@@ -138,6 +160,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
           <p className="border border-rose-200 bg-rose-50 text-rose-800 rounded-lg p-3 text-sm">{loadError || savedJobsError}</p>
         </div>
       )}
+      {savedJobsStatus && <p role="status" aria-live="polite" className="sr-only">{savedJobsStatus}</p>}
       {/* Hero Section */}
       <section className="relative bg-slate-900 text-white overflow-hidden">
         {/* Background Image with Scrim */}
@@ -392,7 +415,11 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                         type="button"
                         onClick={(e) => handleToggleSave(job, e)}
                         title={isSaved ? 'Remove from Saved Jobs' : 'Save Job for Later'}
-                        className={`p-2 rounded-lg border transition-colors ${
+                        aria-label={isSaved ? `Remove ${job.title} from saved jobs` : `Save ${job.title} for later`}
+                        aria-pressed={isSaved}
+                        aria-busy={savingJobIds.has(job.id)}
+                        disabled={savingJobIds.has(job.id)}
+                        className={`p-2 rounded-lg border transition-colors disabled:opacity-50 ${
                           isSaved
                             ? 'bg-amber-50 border-amber-200 text-amber-600'
                             : 'border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50'

@@ -320,14 +320,102 @@ try {
   const mobile = await browser.newContext({ viewport: { width: 375, height: 812 } });
   const mobilePage = await mobile.newPage();
   const browserErrors = [];
+  let expectedSavedJobLookupFailure = false;
+  let expectedSavedJobLookupFailureObserved = false;
   const networkDiagnostics = [];
   mobilePage.on('pageerror', error => browserErrors.push(error.message));
-  mobilePage.on('console', message => { if (message.type() === 'error') browserErrors.push(`console: ${message.text()} at ${message.location().url || 'unknown URL'}`); });
-  mobilePage.on('requestfailed', request => browserErrors.push(`request failed: ${request.url()} — ${request.failure()?.errorText || 'unknown error'}`));
+  mobilePage.on('console', message => {
+    if (message.type() !== 'error') return;
+    const messageUrl = message.location().url || '';
+    const intentionalSavedJobFault = expectedSavedJobLookupFailure
+      && (message.text().includes('/rest/v1/candidate_saved_jobs') || messageUrl.includes('/rest/v1/candidate_saved_jobs'))
+      && (message.text().includes('select=id') || messageUrl.includes('select=id'));
+    if (!intentionalSavedJobFault) browserErrors.push(`console: ${message.text()} at ${message.location().url || 'unknown URL'}`);
+  });
+  mobilePage.on('requestfailed', request => {
+    const intentionalSavedJobFault = expectedSavedJobLookupFailure
+      && request.url().includes('/rest/v1/candidate_saved_jobs')
+      && request.url().includes('select=id');
+    if (intentionalSavedJobFault) {
+      expectedSavedJobLookupFailureObserved = true;
+      return;
+    }
+    browserErrors.push(`request failed: ${request.url()} — ${request.failure()?.errorText || 'unknown error'}`);
+  });
   mobilePage.on('response', response => networkDiagnostics.push(`${response.status()} ${response.request().method()} ${response.url()}`));
   await mobilePage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
     storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
   });
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  const saveJob = mobilePage.getByRole('button', { name: 'Save Senior Systems Engineer for later' });
+  await saveJob.waitFor({ timeout: 20000 });
+  await saveJob.click();
+  await mobilePage.getByRole('status').filter({ hasText: 'Senior Systems Engineer was saved to your account.' }).waitFor({ timeout: 20000 });
+  const savedJobButton = mobilePage.getByRole('button', { name: 'Remove Senior Systems Engineer from saved jobs' });
+  assert(await savedJobButton.getAttribute('aria-pressed') === 'true', 'Saved vacancy button did not expose its persisted pressed state.');
+  const candidateASavedJob = await admin.from('candidate_saved_jobs').select('candidate_user_id,job_id,saved_at')
+    .eq('candidate_user_id', users[0].id).eq('job_id', jobId).single();
+  assert(!candidateASavedJob.error && candidateASavedJob.data.candidate_user_id === users[0].id
+    && candidateASavedJob.data.job_id === jobId && Boolean(candidateASavedJob.data.saved_at),
+  `Candidate save action did not persist to the owner-bound local table: ${JSON.stringify(candidateASavedJob.error)}`);
+  const duplicateCandidateSave = await users[0].client.from('candidate_saved_jobs')
+    .insert({ candidate_user_id: users[0].id, job_id: jobId });
+  assert(duplicateCandidateSave.error?.code === '23505', 'Duplicate candidate saved-job pairs were not denied by the database unique key.');
+  const candidateBCannotReadSavedJob = await users[1].client.from('candidate_saved_jobs').select('job_id')
+    .eq('candidate_user_id', users[0].id);
+  assert(!candidateBCannotReadSavedJob.error && candidateBCannotReadSavedJob.data.length === 0,
+    'Candidate B could read Candidate A saved vacancies.');
+  const candidateBForeignSave = await users[1].client.from('candidate_saved_jobs')
+    .insert({ candidate_user_id: users[0].id, job_id: jobId });
+  assert(candidateBForeignSave.error?.code === '42501', 'Candidate B could insert a saved vacancy for Candidate A.');
+  const anonymousSavedJobs = await anon.from('candidate_saved_jobs').select('job_id');
+  assert(Boolean(anonymousSavedJobs.error), 'Anonymous users could read candidate saved jobs.');
+
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'My saved jobs' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile saved-jobs list overflows the viewport.');
+  await mobilePage.reload({ waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  await mobilePage.setViewportSize({ width: 1280, height: 800 });
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop saved-jobs list overflows the viewport.');
+  const secondCandidateClient = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const secondCandidatePage = await secondCandidateClient.newPage();
+  await secondCandidatePage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
+  });
+  await secondCandidatePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
+  await secondCandidatePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  assert(!(await secondCandidatePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Second-client saved-jobs view overflows the desktop viewport.');
+  await secondCandidateClient.close();
+  const savedJobLookupEndpoint = /\/rest\/v1\/candidate_saved_jobs\?.*select=id/;
+  await mobilePage.route(savedJobLookupEndpoint, route => route.abort());
+  expectedSavedJobLookupFailure = true;
+  await mobilePage.getByRole('button', { name: 'Remove', exact: true }).click();
+  await mobilePage.getByRole('alert').getByRole('button', { name: 'Retry' }).waitFor({ timeout: 20000 });
+  await mobilePage.unroute(savedJobLookupEndpoint);
+  assert(expectedSavedJobLookupFailureObserved, 'Saved-job removal did not reach the simulated transient lookup failure.');
+  await mobilePage.getByRole('button', { name: 'Retry' }).click();
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  expectedSavedJobLookupFailure = false;
+  assert(await mobilePage.getByRole('button', { name: 'Remove', exact: true }).count() === 1, 'Saved job disappeared after a failed removal and list retry.');
+  await mobilePage.getByRole('button', { name: 'Details' }).click();
+  await mobilePage.getByRole('button', { name: 'Back to jobs' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByRole('button', { name: 'Back to jobs' }).click();
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('button', { name: 'Apply', exact: true }).click();
+  await mobilePage.getByRole('heading', { name: 'Apply for Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByRole('button', { name: 'Back to job' }).click();
+  await mobilePage.getByRole('button', { name: 'Back to jobs' }).click();
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('button', { name: 'Remove', exact: true }).click();
+  await mobilePage.getByText('No saved jobs yet.', { exact: true }).waitFor({ timeout: 20000 });
+  const removedSavedJob = await admin.from('candidate_saved_jobs').select('id').eq('candidate_user_id', users[0].id).eq('job_id', jobId);
+  assert(!removedSavedJob.error && removedSavedJob.data.length === 0, 'Removing a saved job did not persist its deletion.');
+
   await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=apply&job=${jobId}`, { waitUntil: 'domcontentloaded' });
   try {
     await mobilePage.getByRole('heading', { name: 'Apply for Senior Systems Engineer' }).waitFor({ timeout: 20000 });
