@@ -322,22 +322,32 @@ try {
   const browserErrors = [];
   let expectedSavedJobLookupFailure = false;
   let expectedSavedJobLookupFailureObserved = false;
+  let expectedDetailsJobLoadFailure = false;
+  let expectedDetailsJobLoadFailureObserved = false;
   const networkDiagnostics = [];
   mobilePage.on('pageerror', error => browserErrors.push(error.message));
   mobilePage.on('console', message => {
     if (message.type() !== 'error') return;
     const messageUrl = message.location().url || '';
-    const intentionalSavedJobFault = expectedSavedJobLookupFailure
+    const intentionalSavedJobFault = (expectedSavedJobLookupFailure
       && (message.text().includes('/rest/v1/candidate_saved_jobs') || messageUrl.includes('/rest/v1/candidate_saved_jobs'))
-      && (message.text().includes('select=id') || messageUrl.includes('select=id'));
+      && (message.text().includes('select=id') || messageUrl.includes('select=id')))
+      || (expectedDetailsJobLoadFailure
+        && (message.text().includes('/rest/v1/candidate_published_jobs') || messageUrl.includes('/rest/v1/candidate_published_jobs')));
     if (!intentionalSavedJobFault) browserErrors.push(`console: ${message.text()} at ${message.location().url || 'unknown URL'}`);
   });
   mobilePage.on('requestfailed', request => {
     const intentionalSavedJobFault = expectedSavedJobLookupFailure
       && request.url().includes('/rest/v1/candidate_saved_jobs')
       && request.url().includes('select=id');
+    const intentionalDetailsJobFault = expectedDetailsJobLoadFailure
+      && request.url().includes('/rest/v1/candidate_published_jobs');
     if (intentionalSavedJobFault) {
       expectedSavedJobLookupFailureObserved = true;
+      return;
+    }
+    if (intentionalDetailsJobFault) {
+      expectedDetailsJobLoadFailureObserved = true;
       return;
     }
     browserErrors.push(`request failed: ${request.url()} — ${request.failure()?.errorText || 'unknown error'}`);
@@ -400,9 +410,17 @@ try {
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
   expectedSavedJobLookupFailure = false;
   assert(await mobilePage.getByRole('button', { name: 'Remove', exact: true }).count() === 1, 'Saved job disappeared after a failed removal and list retry.');
+  const publishedJobsEndpoint = /\/rest\/v1\/candidate_published_jobs\?/;
+  await mobilePage.route(publishedJobsEndpoint, route => route.abort());
+  expectedDetailsJobLoadFailure = true;
   await mobilePage.getByRole('button', { name: 'Details' }).click();
+  await mobilePage.getByRole('alert').getByRole('button', { name: 'Retry' }).waitFor({ timeout: 20000 });
+  await mobilePage.unroute(publishedJobsEndpoint);
+  assert(expectedDetailsJobLoadFailureObserved, 'Job details did not surface the simulated published-vacancy load failure.');
+  await mobilePage.getByRole('alert').getByRole('button', { name: 'Retry' }).click();
   const detailsSavedJob = mobilePage.getByRole('button', { name: 'Remove Senior Systems Engineer from saved jobs' });
   await detailsSavedJob.waitFor({ timeout: 20000 });
+  expectedDetailsJobLoadFailure = false;
   assert(await detailsSavedJob.getAttribute('aria-pressed') === 'true', 'Job details did not load the saved state for the authenticated candidate.');
   await detailsSavedJob.click();
   await mobilePage.getByRole('status').filter({ hasText: 'Senior Systems Engineer was removed from saved jobs.' }).waitFor({ timeout: 20000 });

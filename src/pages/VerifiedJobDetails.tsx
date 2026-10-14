@@ -20,6 +20,7 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [retrySequence, setRetrySequence] = useState(0);
   const requestSequence = useRef(0);
   const toggleInFlight = useRef(false);
   const activeUserId = useRef(userId);
@@ -59,7 +60,7 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
       active = false;
       requestSequence.current += 1;
     };
-  }, [jobId, publicOnly, userId]);
+  }, [jobId, publicOnly, retrySequence, userId]);
 
   async function toggle() {
     if (!job) return;
@@ -92,7 +93,10 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
   return <main className="min-h-screen bg-slate-50 px-4 py-8">
     <article className="max-w-4xl mx-auto bg-white border rounded-xl p-6 space-y-5">
       <button type="button" onClick={onBack} className={button}>Back to jobs</button>
-      {error && <p role="alert" className="p-3 bg-rose-50 text-rose-700 text-sm">{error}</p>}
+      {error && <div role="alert" className="p-3 bg-rose-50 text-rose-700 text-sm space-y-2">
+        <p>{error}</p>
+        <button type="button" className={button} disabled={loading} onClick={() => setRetrySequence(value => value + 1)}>Retry</button>
+      </div>}
       {status && <p role="status" aria-live="polite" className="sr-only">{status}</p>}
       {loading ? <p role="status" aria-live="polite" className="text-sm text-slate-500">Loading vacancy…</p>
         : !job ? <p className="text-sm text-slate-500">Vacancy not available or cannot be verified.</p> : <>
