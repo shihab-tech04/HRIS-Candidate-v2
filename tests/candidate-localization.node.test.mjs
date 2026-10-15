@@ -10,6 +10,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 test('candidate locale translates workflow copy and interpolates dynamic values', () => {
   assert.equal(translateCandidateText('Open Roles', 'bn'), 'চলতি চাকরি');
   assert.equal(translateCandidateText('Apply for {title}', 'bn', { title: 'Senior Engineer' }), 'Senior Engineer পদে আবেদন করুন');
+  assert.equal(translateCandidateText('Application submitted.', 'bn'), 'আবেদন জমা হয়েছে।');
+  assert.equal(translateCandidateText('Candidate-authored note', 'bn'), 'Candidate-authored note');
   assert.equal(translateCandidateText('Answer the required question: How do you work?', 'bn'), 'আবশ্যিক প্রশ্নের উত্তর দিন: How do you work?');
   assert.equal(translateCandidateText('Apply for {title}', 'en', { title: 'Senior Engineer' }), 'Apply for Senior Engineer');
 });

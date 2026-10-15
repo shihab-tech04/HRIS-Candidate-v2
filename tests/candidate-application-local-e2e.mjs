@@ -1144,6 +1144,16 @@ try {
   await page.goto(`http://127.0.0.1:${webPort}/?view=applications`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
   const mobileHistory = page.getByRole('region', { name: 'Application history' });
+  await page.getByRole('button', { name: 'Switch to Bengali' }).click();
+  await page.getByRole('region', { name: 'আবেদনের ইতিহাস' }).getByText('আবেদন জমা হয়েছে।', { exact: true }).waitFor({ timeout: 20000 });
+  assert(await page.locator('html').getAttribute('lang') === 'bn', 'Bengali selection did not update the document language.');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'আমার আবেদন' }).waitFor({ timeout: 20000 });
+  const refreshedBengaliHistory = page.getByRole('region', { name: 'আবেদনের ইতিহাস' });
+  await refreshedBengaliHistory.getByText('আবেদন জমা হয়েছে।', { exact: true }).waitFor({ timeout: 20000 });
+  assert(await page.locator('html').getAttribute('lang') === 'bn', 'Bengali selection did not persist across refresh.');
+  await page.getByRole('button', { name: 'ইংরেজিতে পরিবর্তন করুন' }).click();
+  await page.getByRole('region', { name: 'Application history' }).getByText('Application submitted.', { exact: true }).waitFor({ timeout: 20000 });
   await mobileHistory.getByText('Screening in Progress', { exact: true }).first().waitFor({ timeout: 20000 });
   await mobileHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
   await mobileHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });

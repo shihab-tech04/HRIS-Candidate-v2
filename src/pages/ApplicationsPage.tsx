@@ -302,7 +302,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                               <div className="min-w-0 text-xs">
                                 <p className="font-bold text-slate-900">{stageLabel(entry.stage)}</p>
                                 <p className="text-slate-500">{timelineDate(entry.created_at)}</p>
-                                {entry.note && <p className="mt-1 break-words text-slate-600">{entry.note}</p>}
+                                {entry.note && <p className="mt-1 break-words text-slate-600">{t(entry.note)}</p>}
                               </div>
                             </div>;
                           })}

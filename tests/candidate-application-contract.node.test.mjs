@@ -81,6 +81,7 @@ test('application page renders stored stage history rather than inferred screeni
   const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
   assert.match(applicationsPage, /app\.stage_history/);
   assert.match(applicationsPage, /Application History/);
+  assert.match(applicationsPage, /\{t\(entry\.note\)\}/, 'Candidate-visible history notes use the selected locale, preserving unknown candidate-authored text.');
   assert.match(applicationsPage, /No application history updates are available yet/);
   assert.doesNotMatch(applicationsPage, /Verified qualification criteria & resume mapping/);
 });

@@ -53,6 +53,7 @@ export const CANDIDATE_BENGALI: Readonly<Record<string, string>> = {
   'Not Selected': 'নির্বাচিত হননি',
   'Hired': 'নিয়োগ সম্পন্ন',
   'Draft': 'খসড়া',
+  'Application submitted.': 'আবেদন জমা হয়েছে।',
   'Application History': 'আবেদনের ইতিহাস',
   'Application history': 'আবেদনের ইতিহাস',
   'No application history updates are available yet.': 'আবেদনের ইতিহাসে এখনও কোনো হালনাগাদ নেই।',
