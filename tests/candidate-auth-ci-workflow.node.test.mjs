@@ -11,6 +11,8 @@ test('Candidate Auth/RLS CI is disposable, development-only, least-privilege, an
   assert.match(workflow, /timeout-minutes: 45/);
   assert.match(workflow, /permissions:\s+contents: read/);
   assert.match(workflow, /git clone --depth 1 --branch development\/hris-checkpoints https:\/\/github\.com\/shihab-tech04\/HRIS-v2\.git/);
+  assert.match(workflow, /Record the trusted HRIS source revision used for Candidate security fixtures/);
+  assert.match(workflow, /git -C "\$HRIS_MAIN_REPO_ROOT" rev-parse HEAD/);
   assert.match(workflow, /node tests\/sql\/candidate-c1\/run-local-tenant-auth\.mjs/);
   assert.match(workflow, /node tests\/candidate-profile-local-e2e\.mjs/);
   assert.match(workflow, /node tests\/candidate-application-local-e2e\.mjs/);

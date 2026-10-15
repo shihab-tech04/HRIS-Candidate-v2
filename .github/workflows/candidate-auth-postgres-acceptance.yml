@@ -30,6 +30,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Checkout the trusted public HRIS development source for database fixtures
         run: git clone --depth 1 --branch development/hris-checkpoints https://github.com/shihab-tech04/HRIS-v2.git "$HRIS_MAIN_REPO_ROOT"
+      - name: Record the trusted HRIS source revision used for Candidate security fixtures
+        run: git -C "$HRIS_MAIN_REPO_ROOT" rev-parse HEAD
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
