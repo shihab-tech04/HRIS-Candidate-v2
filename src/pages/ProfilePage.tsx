@@ -515,19 +515,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                   </span>
                 ))}
               </div>
-              <div className="flex gap-2 max-w-sm">
+              <div className="flex flex-col sm:flex-row gap-2 max-w-sm">
                 <input
                   aria-label="Add a skill"
                   type="text"
                   value={newSkill}
                   onChange={(e) => setNewSkill(e.target.value)}
                   placeholder="e.g. Kubernetes, PostgreSQL, Figma"
-                  className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
+                  className="w-full min-w-0 sm:flex-1 sm:w-auto px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
                 />
                 <button
                   type="button"
                   onClick={addSkill}
-                  className="px-3 py-1.5 bg-slate-800 text-white text-xs font-semibold rounded-lg hover:bg-slate-900"
+                  className="self-start px-3 py-1.5 bg-slate-800 text-white text-xs font-semibold rounded-lg hover:bg-slate-900"
                 >
                   Add Skill
                 </button>
@@ -556,19 +556,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
                   </span>
                 ))}
               </div>
-              <div className="flex gap-2 max-w-sm">
+              <div className="flex flex-col sm:flex-row gap-2 max-w-sm">
                 <input
                   aria-label="Add a certification"
                   type="text"
                   value={newCert}
                   onChange={(e) => setNewCert(e.target.value)}
                   placeholder="e.g. AWS Solutions Architect"
-                  className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
+                  className="w-full min-w-0 sm:flex-1 sm:w-auto px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
                 />
                 <button
                   type="button"
                   onClick={addCert}
-                  className="px-3 py-1.5 bg-slate-800 text-white text-xs font-semibold rounded-lg hover:bg-slate-900"
+                  className="self-start px-3 py-1.5 bg-slate-800 text-white text-xs font-semibold rounded-lg hover:bg-slate-900"
                 >
                   Add Certification
                 </button>
