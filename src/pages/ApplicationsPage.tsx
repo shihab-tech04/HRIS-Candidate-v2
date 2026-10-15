@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useCandidateLocale } from '../context/CandidateLocaleContext';
 import { JobApplication, InterviewInvitation } from '../types';
 import { getRecruitmentContext, withdrawApplication } from '../lib/api';
 import {
@@ -29,6 +30,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
   selectedAppId
 }) => {
   const { user } = useAuth();
+  const { locale, t } = useCandidateLocale();
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -39,9 +41,12 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawing, setWithdrawing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const withdrawalDialogRef = useRef<HTMLDivElement | null>(null);
+  const withdrawingRef = useRef(false);
 
   const stageLabel = (stage: string) => {
     const labels: Record<string, string> = {
+      draft: 'Draft',
       applied: 'Application Submitted',
       submitted: 'Application Submitted',
       under_review: 'Under Review',
@@ -56,13 +61,66 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
       hired: 'Hired',
     };
     const key = stage.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
-    return labels[key] || stage.trim().replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+    return t(labels[key] || stage.trim().replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase()));
   };
 
   const timelineDate = (value: string) => {
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? t('Date unavailable') : date.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US');
   };
+
+  const submittedDate = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? t('Date unavailable') : date.toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US');
+  };
+
+  const openWithdrawalDialog = (application: JobApplication) => {
+    setWithdrawReason('');
+    setActionError(null);
+    setWithdrawModalApp(application);
+  };
+
+  const closeWithdrawalDialog = () => {
+    if (withdrawingRef.current) return;
+    setWithdrawModalApp(null);
+    setWithdrawReason('');
+    setActionError(null);
+  };
+
+  useEffect(() => {
+    if (!withdrawModalApp) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !withdrawingRef.current) {
+        event.preventDefault();
+        closeWithdrawalDialog();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = withdrawalDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), select:not([disabled])'
+      );
+      if (!focusable?.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === withdrawalDialogRef.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.requestAnimationFrame(() => withdrawalDialogRef.current?.focus());
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previouslyFocused?.focus({ preventScroll: true });
+    };
+  }, [withdrawModalApp]);
 
   useEffect(() => {
     loadApplications();
@@ -87,29 +145,35 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
     e.preventDefault();
     if (!withdrawModalApp || !withdrawReason.trim()) return;
 
+    withdrawingRef.current = true;
     setWithdrawing(true);
     setActionError(null);
 
-    const res = await withdrawApplication(withdrawModalApp.id, withdrawReason.trim());
-    setWithdrawing(false);
-
-    if (!res.success) {
-      setActionError(res.error || 'Failed to withdraw application.');
-    } else {
-      setWithdrawModalApp(null);
-      setWithdrawReason('');
-      await loadApplications();
+    try {
+      const res = await withdrawApplication(withdrawModalApp.id, withdrawReason.trim());
+      if (!res.success) {
+        setActionError(t('We could not withdraw your application. Please try again.'));
+      } else {
+        setWithdrawModalApp(null);
+        setWithdrawReason('');
+        await loadApplications();
+      }
+    } catch {
+      setActionError(t('We could not withdraw your application. Please try again.'));
+    } finally {
+      withdrawingRef.current = false;
+      setWithdrawing(false);
     }
   };
 
   if (loadError) return <main className="max-w-4xl mx-auto px-4 py-16">
-    <h1 className="text-xl font-semibold">Unable to load records</h1>
-    <p role="alert" className="mt-3 text-sm text-red-700">{loadError}</p>
-    <button type="button" className="min-h-11 mt-4 px-4 rounded-lg border" onClick={() => void loadApplications()}>Retry</button>
+    <h1 className="text-xl font-semibold">{t('Unable to load applications')}</h1>
+    <p role="alert" className="mt-3 text-sm text-red-700">{t('Your applications could not be loaded. Please try again.')}</p>
+    <button type="button" className="min-h-11 mt-4 px-4 rounded-lg border" onClick={() => void loadApplications()}>{t('Retry')}</button>
   </main>;
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto px-4 py-16">
+      <div role="status" aria-label={t('Loading applications')} className="max-w-5xl mx-auto px-4 py-16">
         <div className="space-y-4 animate-pulse">
           {[1, 2].map((i) => (
             <div key={i} className="h-40 bg-white rounded-2xl border border-slate-200"></div>
@@ -126,33 +190,33 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <span className="text-xs uppercase tracking-wider font-semibold text-[#085587]">
-              Application Lifecycle Tracking
+              {t('Application Lifecycle Tracking')}
             </span>
-            <h1 className="text-2xl font-bold text-slate-900 mt-1">My Applications</h1>
+            <h1 className="text-2xl font-bold text-slate-900 mt-1">{t('My Applications')}</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Authorized real-time stage progression across Synesis HRIS recruitment pipelines.
+              {t('Authorized real-time stage progression across Synesis HRIS recruitment pipelines.')}
             </p>
           </div>
           <button
             onClick={() => onNavigate('jobs')}
-            className="py-2 px-4 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors self-start sm:self-auto shadow-xs"
+            className="min-h-11 px-4 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors self-start sm:self-auto shadow-xs"
           >
-            Browse Open Roles
+            {t('Browse Open Roles')}
           </button>
         </div>
 
         {applications.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center my-8">
             <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-            <h2 className="text-base font-bold text-slate-800 mb-1">No Applications Yet</h2>
+            <h2 className="text-base font-bold text-slate-800 mb-1">{t('No Applications Yet')}</h2>
             <p className="text-xs text-slate-500 max-w-sm mx-auto mb-6">
-              You haven't submitted any job applications yet. Review our active vacancies and start your journey.
+              {t("You haven't submitted any job applications yet. Review our active vacancies and start your journey.")}
             </p>
             <button
               onClick={() => onNavigate('jobs')}
-              className="py-2.5 px-6 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors"
+              className="min-h-11 px-6 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors"
             >
-              Explore Published Vacancies
+              {t('Explore Published Vacancies')}
             </button>
           </div>
         ) : (
@@ -178,6 +242,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                     }}
                     role="button"
                     tabIndex={0}
+                    aria-label={t('Application history for {title}', { title: app.job?.title || app.job_title || t('Applied Position') })}
                     aria-expanded={isExpanded}
                     aria-controls={`application-history-${app.id}`}
                     className="p-5 sm:p-6 cursor-pointer hover:bg-slate-50/50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#085587]"
@@ -186,12 +251,12 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span className="font-mono text-slate-600 font-semibold">{app.id}</span>
                         <span aria-hidden="true">·</span>
-                        <span>{app.job?.department || app.department || 'Department'}</span>
+                        <span>{t(app.job?.department || app.department || 'Department')}</span>
                         <span aria-hidden="true">·</span>
-                        <span>Submitted {new Date(app.submitted_at).toLocaleDateString()}</span>
+                        <span>{t('Submitted {date}', { date: submittedDate(app.submitted_at) })}</span>
                       </div>
                       <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                        {app.job?.title || app.job_title || 'Applied Position'}
+                        {app.job?.title || app.job_title || t('Applied Position')}
                       </h2>
                     </div>
 
@@ -205,7 +270,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                             : 'bg-sky-50 text-[#085587] border-sky-100'
                         }`}
                       >
-                        {app.candidate_visible_status}
+                        {stageLabel(app.status || app.candidate_visible_status)}
                       </span>
                       {isExpanded ? (
                         <ChevronUp className="w-5 h-5 text-slate-400" />
@@ -218,13 +283,13 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                   {/* Expanded Detail Body */}
                   {isExpanded && (
                     <div className="border-t border-slate-100 p-5 sm:p-6 bg-slate-50/50 space-y-6">
-                      <section id={`application-history-${app.id}`} aria-label="Application history">
+                      <section id={`application-history-${app.id}`} aria-label={t('Application history')}>
                         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">
-                          Application History
+                          {t('Application History')}
                         </h3>
                         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-4">
                           {(app.stage_history || []).length === 0 ? (
-                            <p role="status" className="text-xs text-slate-500">No application history updates are available yet.</p>
+                            <p role="status" className="text-xs text-slate-500">{t('No application history updates are available yet.')}</p>
                           ) : app.stage_history?.map((entry, index) => {
                             const current = index === (app.stage_history?.length || 0) - 1;
                             const withdrawn = entry.stage.toLowerCase() === 'withdrawn';
@@ -248,28 +313,28 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
                           <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-1.5">
-                            Submission Details
+                            {t('Submission Details')}
                           </h4>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">Attached CV:</span>
+                            <span className="text-slate-500">{t('Attached CV:')}</span>
                             <span className="font-semibold text-slate-800">{app.cv_title}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">Workplace:</span>
-                            <span className="text-slate-800">{app.job?.workplace_type}</span>
+                            <span className="text-slate-500">{t('Workplace:')}</span>
+                            <span className="text-slate-800">{t(app.job?.workplace_type || '')}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-500">Legal Consent:</span>
-                            <span className="text-emerald-700 font-semibold">Granted</span>
+                            <span className="text-slate-500">{t('Legal Consent:')}</span>
+                            <span className="text-emerald-700 font-semibold">{t('Granted')}</span>
                           </div>
                         </div>
 
                         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
                           <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-1.5">
-                            Screening Responses
+                            {t('Screening Responses')}
                           </h4>
                           {Object.keys(app.screening_answers || {}).length === 0 ? (
-                            <p className="text-slate-400">No custom screening fields required.</p>
+                            <p className="text-slate-400">{t('No custom screening fields required.')}</p>
                           ) : (
                             <div className="space-y-1.5">
                               {Object.entries(app.screening_answers).map(([key, val]) => (
@@ -288,7 +353,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                       {/* Cover letter if provided */}
                       {app.cover_letter && (
                         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-1 text-xs">
-                          <h4 className="font-bold text-slate-800">Submitted Cover Note:</h4>
+                          <h4 className="font-bold text-slate-800">{t('Submitted Cover Note:')}</h4>
                           <p className="text-slate-600 leading-relaxed italic">
                             "{app.cover_letter}"
                           </p>
@@ -300,25 +365,25 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => onNavigate('interviews')}
-                            className="py-1.5 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold transition-colors"
+                            className="min-h-11 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold transition-colors"
                           >
-                            Check Interviews
+                            {t('Check Interviews')}
                           </button>
                           <button
                             onClick={() => onNavigate('tasks')}
-                            className="py-1.5 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold transition-colors"
+                            className="min-h-11 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold transition-colors"
                           >
-                            Assessments & Documents
+                            {t('Assessments & Documents')}
                           </button>
                         </div>
 
                         {!isWithdrawn && !isRejected && (
                           <button
                             type="button"
-                            onClick={() => setWithdrawModalApp(app)}
-                            className="py-1.5 px-3 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-semibold transition-colors"
+                            onClick={() => openWithdrawalDialog(app)}
+                            className="min-h-11 px-3 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-semibold transition-colors"
                           >
-                            Withdraw Application
+                            {t('Withdraw Application')}
                           </button>
                         )}
                       </div>
@@ -333,56 +398,57 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
         {/* Withdrawal Confirmation Modal */}
         {withdrawModalApp && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div ref={withdrawalDialogRef} role="dialog" aria-modal="true" aria-labelledby="withdraw-application-title" aria-describedby="withdraw-application-description" tabIndex={-1} className="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-2xl shadow-xl max-w-md w-full border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150 focus:outline-none">
               <div className="flex items-center gap-2.5 text-rose-600">
                 <AlertTriangle className="w-5 h-5" />
-                <h3 className="text-base font-bold text-slate-900">Withdraw Application</h3>
+                <h3 id="withdraw-application-title" className="text-base font-bold text-slate-900">{t('Withdraw Application')}</h3>
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Are you sure you want to withdraw your application for{' '}
-                <strong>{withdrawModalApp.job?.title}</strong>? Once withdrawn, this position will no longer progress in Main HRIS.
+              <p id="withdraw-application-description" className="text-xs text-slate-600 leading-relaxed">
+                {t('Are you sure you want to withdraw your application for {title}? Once withdrawn, this position will no longer progress in Main HRIS.', { title: withdrawModalApp.job?.title || withdrawModalApp.job_title || t('Applied Position') })}
               </p>
 
               {actionError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+                <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
                   {actionError}
                 </div>
               )}
 
               <form onSubmit={handleWithdrawSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Reason for Withdrawal *
+                  <label htmlFor="withdraw-reason" className="block text-xs font-semibold text-slate-700 mb-1">
+                    {t('Reason for Withdrawal *')}
                   </label>
                   <select
+                    id="withdraw-reason"
                     required
                     value={withdrawReason}
                     onChange={(e) => setWithdrawReason(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
+                    className="min-h-11 w-full px-3 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#085587]"
                   >
-                    <option value="">Select a reason...</option>
-                    <option value="Accepted another job offer">Accepted another job offer</option>
-                    <option value="Location / Commute constraints">Location / Commute constraints</option>
-                    <option value="Compensation expectations mismatch">Compensation expectations mismatch</option>
-                    <option value="Personal / Family circumstances">Personal / Family circumstances</option>
-                    <option value="Other">Other</option>
+                    <option value="">{t('Select a reason...')}</option>
+                    <option value="Accepted another job offer">{t('Accepted another job offer')}</option>
+                    <option value="Location / Commute constraints">{t('Location / Commute constraints')}</option>
+                    <option value="Compensation expectations mismatch">{t('Compensation expectations mismatch')}</option>
+                    <option value="Personal / Family circumstances">{t('Personal / Family circumstances')}</option>
+                    <option value="Other">{t('Other')}</option>
                   </select>
                 </div>
 
                 <div className="flex items-center justify-end gap-3 pt-2">
                   <button
                     type="button"
-                    onClick={() => setWithdrawModalApp(null)}
-                    className="py-2 px-4 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg"
+                    onClick={closeWithdrawalDialog}
+                    disabled={withdrawing}
+                    className="min-h-11 px-4 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-50"
                   >
-                    Cancel
+                    {t('Cancel')}
                   </button>
                   <button
                     type="submit"
                     disabled={withdrawing || !withdrawReason}
-                    className="py-2 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-sm disabled:opacity-50"
+                    className="min-h-11 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-sm disabled:opacity-50"
                   >
-                    {withdrawing ? 'Processing...' : 'Confirm Withdrawal'}
+                    {withdrawing ? t('Processing...') : t('Confirm Withdrawal')}
                   </button>
                 </div>
               </form>

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { adaptLiveApplication } from '../src/lib/recruitmentAdapters.ts';
+import { translateCandidateText } from '../src/lib/candidateLocale.ts';
 
 const page = readFileSync(new URL('../src/pages/VerifiedApplyPage.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../src/lib/api.ts', import.meta.url), 'utf8');
@@ -82,6 +83,32 @@ test('application page renders stored stage history rather than inferred screeni
   assert.match(applicationsPage, /Application History/);
   assert.match(applicationsPage, /No application history updates are available yet/);
   assert.doesNotMatch(applicationsPage, /Verified qualification criteria & resume mapping/);
+});
+
+test('application history and withdrawal recovery use the shared EN/BN locale and preserve reason values', () => {
+  const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
+  assert.match(applicationsPage, /useCandidateLocale/);
+  assert.match(applicationsPage, /date\.toLocaleString\(locale === 'bn' \? 'bn-BD' : 'en-US'\)/);
+  assert.match(applicationsPage, /date\.toLocaleDateString\(locale === 'bn' \? 'bn-BD' : 'en-US'\)/);
+  assert.match(applicationsPage, /stageLabel\(app\.status \|\| app\.candidate_visible_status\)/);
+  assert.match(applicationsPage, /role="alert"[^>]*>\{t\('Your applications could not be loaded\. Please try again\.'\)\}/);
+  assert.match(applicationsPage, /<option value="Accepted another job offer">\{t\('Accepted another job offer'\)\}<\/option>/);
+  assert.match(applicationsPage, /<option value="Location \/ Commute constraints">\{t\('Location \/ Commute constraints'\)\}<\/option>/);
+  assert.match(applicationsPage, /<option value="Compensation expectations mismatch">\{t\('Compensation expectations mismatch'\)\}<\/option>/);
+  assert.equal(translateCandidateText('My Applications', 'bn'), 'আমার আবেদন');
+  assert.equal(translateCandidateText('Interview Scheduled', 'bn'), 'সাক্ষাৎকার নির্ধারিত হয়েছে');
+  assert.equal(translateCandidateText('Submitted {date}', 'bn', { date: '১৫ অক্টোবর ২০২৬' }), '১৫ অক্টোবর ২০২৬-এ জমা');
+});
+
+test('application withdrawal dialog has labelled modal semantics, keyboard containment and recoverable errors', () => {
+  const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
+  assert.match(applicationsPage, /role="dialog" aria-modal="true" aria-labelledby="withdraw-application-title" aria-describedby="withdraw-application-description"/);
+  assert.match(applicationsPage, /window\.requestAnimationFrame\(\(\) => withdrawalDialogRef\.current\?\.focus\(\)\)/);
+  assert.match(applicationsPage, /event\.key === 'Escape'[\s\S]*?closeWithdrawalDialog\(\)/);
+  assert.match(applicationsPage, /event\.shiftKey[\s\S]*?last\.focus\(\)/);
+  assert.match(applicationsPage, /previouslyFocused\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(applicationsPage, /catch \{[\s\S]*?setActionError\(t\('We could not withdraw your application\. Please try again\.'\)\)/);
+  assert.match(applicationsPage, /disabled=\{withdrawing\}[\s\S]*?\{t\('Cancel'\)\}/);
 });
 
 test('fresh local application journey creates its schema before cleaning stale test jobs', () => {
