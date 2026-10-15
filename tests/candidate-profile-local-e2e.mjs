@@ -149,7 +149,28 @@ try {
   await mobileProfilePage.goto(`http://127.0.0.1:${candidatePort}/?view=profile`, { waitUntil: 'domcontentloaded' });
   await mobileProfilePage.getByRole('heading', { name: 'Reusable Candidate Profile' }).waitFor({ timeout: 15000 });
   assert(await mobileProfilePage.getByLabel(/Current Location/).inputValue() === 'Sylhet, Bangladesh', 'Mobile Candidate Profile did not recover the saved value after refresh.');
-  assert(!(await mobileProfilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile Candidate Profile overflows the viewport.');
+  const mobileOverflow = await mobileProfilePage.evaluate(() => {
+    const viewport = window.innerWidth;
+    const documentWidth = document.documentElement.scrollWidth;
+    if (documentWidth <= viewport) return null;
+    return {
+      viewport,
+      documentWidth,
+      offenders: Array.from(document.querySelectorAll('*')).map(element => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName,
+          className: typeof element.className === 'string' ? element.className : '',
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+        };
+      }).filter(item => item.right > viewport + 1 || item.left < -1)
+        .sort((left, right) => right.right - left.right).slice(0, 12),
+    };
+  });
+  if (mobileOverflow) process.stdout.write(`CANDIDATE_PROFILE_OVERFLOW=${JSON.stringify(mobileOverflow)}\n`);
+  assert(!mobileOverflow, 'Mobile Candidate Profile overflows the viewport.');
   await mobileProfileContext.close();
   assert(await admin.auth.admin.listUsers({ page: 1, perPage: 1000 }).then(r => !r.error && r.data.users.length === 2), 'Expected exactly two temporary local Auth users during browser acceptance.');
   process.stdout.write(`CANDIDATE_C1_LOCAL_E2E PASS=${checks} FAIL=0 viewports=2 inactive_retry=2 profile_read_write=tenant-B refresh=verified auth=local-gotrue\n`);
