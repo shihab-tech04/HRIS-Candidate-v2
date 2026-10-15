@@ -887,10 +887,10 @@ try {
   const candidateApplicationRow = mainManagerPage.getByRole('listitem').filter({ hasText: 'Candidate A Application Name' }).first();
   await candidateApplicationRow.getByText('Assign assessment', { exact: true }).click();
   assert(await candidateApplicationRow.locator('form').last().evaluate(form => !form.checkValidity()), 'Assessment assignment form did not require title, type, instructions, and due date.');
-  await candidateApplicationRow.getByLabel('Assessment title for Candidate A Application Name').fill(assessmentArguments.p_title);
-  await candidateApplicationRow.getByLabel('Assessment type for Candidate A Application Name').fill(assessmentArguments.p_assessment_type);
-  await candidateApplicationRow.getByLabel('Assessment instructions for Candidate A Application Name').fill(assessmentArguments.p_instructions);
-  await candidateApplicationRow.getByLabel('Assessment due date for Candidate A Application Name').fill(assessmentArguments.p_deadline_date);
+  await candidateApplicationRow.getByLabel('Assessment title — Candidate A Application Name').fill(assessmentArguments.p_title);
+  await candidateApplicationRow.getByLabel('Assessment type — Candidate A Application Name').fill(assessmentArguments.p_assessment_type);
+  await candidateApplicationRow.getByLabel('Assessment instructions — Candidate A Application Name').fill(assessmentArguments.p_instructions);
+  await candidateApplicationRow.getByLabel('Due date — Candidate A Application Name').fill(assessmentArguments.p_deadline_date);
   await candidateApplicationRow.getByRole('button', { name: 'Assign to candidate' }).click();
   try { await candidateApplicationRow.getByRole('status').filter({ hasText: 'Assessment assigned to Candidate A Application Name.' }).waitFor({ timeout: 20000 }); }
   catch { throw new Error(`Assessment assignment did not complete. Row=${(await candidateApplicationRow.innerText()).slice(0, 1500)} response=${JSON.stringify(assessmentAssignmentResponses)} diagnostics=${mainDiagnostics.join(';') || browserErrors.join(';') || 'none'}`); }
