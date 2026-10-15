@@ -782,6 +782,12 @@ try {
     && screeningApplication.stage_history.every(row => !Object.hasOwn(row, 'actor_user_id'))
     && !JSON.stringify(screeningApplication.stage_history).includes('Application moved to screening.'),
   `Candidate did not receive persisted review stages without recruiter identity or internal notes: ${JSON.stringify(screeningContext.error || screeningApplication?.stage_history)}`);
+  const sensitiveStageHistory = await users[0].client
+    .from('candidate_application_stage_history')
+    .select('note,actor_user_id')
+    .eq('application_id', application.id);
+  assert(sensitiveStageHistory.error?.code === '42501',
+    `Candidate direct read of recruiter notes/actor identifiers was not denied: ${JSON.stringify(sensitiveStageHistory.error || sensitiveStageHistory.data)}`);
   await page.getByText('Application History', { exact: true }).waitFor();
   await page.getByRole('region', { name: 'Application history' }).getByText('Application Submitted', { exact: true }).waitFor();
   const initialApplicationTimeline = await page.locator('body').innerText();
