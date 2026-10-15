@@ -1,5 +1,13 @@
 # C1 RELEASE ACCEPTANCE — independent audit checkpoint
 
+## Current development reconciliation — 2026-10-15
+
+The current local Candidate development checkpoint is `0a90462ac48c2125f048cfbfebcee1c2455a17ec` (`development/hris-checkpoints` in the local remote-tracking refs). GitHub exposes this commit at [the commit page](https://github.com/shihab-tech04/HRIS-Candidate-v2/commit/0a90462ac48c2125f048cfbfebcee1c2455a17ec), and the development branch exists. A direct GitHub ref lookup could not run from this host because `github.com` DNS resolution failed, so its live ref SHA is not re-certified here.
+
+On this current checkout, `npm run test:routes` passed **20/20**, `npm run lint` passed, and `npm run build` passed. The production build emitted the existing Vite `__dirname` configuration advisory and a 653.69 kB JavaScript chunk-size advisory. A local Chromium demo check opened `?view=job-details&job=job-synesis-001`, refreshed it, returned to vacancies, and restored the vacancy through browser back/forward. The check used local demo records with an empty Supabase key; it did not contact Auth, Postgres, or production.
+
+The historical statement below that deep-link/hard-refresh recovery is blocked by state-only routing is superseded for the current development source: query-based route state, refresh restoration, and browser history handling are implemented and locally checked. **Hosted GitHub Pages hard-refresh behavior remains unverified.** Candidate C1 remains **NO-GO** pending real Auth/Postgres and two-identity RLS acceptance, hosted Pages source/HTTPS verification, full responsive and EN/BN acceptance, and the remaining release gates in the historical table. No production deployment or database change occurred in this reconciliation.
+
 Candidate source f41562d43888388ca9143398077a13634ebcdeb5; expected Pages URL https://shihab-tech04.github.io/HRIS-Candidate-v2/; shared production SQL oslgwxaqfbteqtwqvdzs unchanged.
 
 ## Original failure: proved by GitHub Actions logs
