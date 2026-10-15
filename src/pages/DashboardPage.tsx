@@ -123,9 +123,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   if (loadError) {
     return (
-      <main className="min-h-screen bg-slate-50 px-4 py-16">
+      <section aria-labelledby="candidate-dashboard-load-error-heading" className="min-h-screen bg-slate-50 px-4 py-16">
         <div className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
-          <h1 className="text-xl font-semibold text-slate-900">{t('Unable to load your workspace')}</h1>
+          <h1 id="candidate-dashboard-load-error-heading" className="text-xl font-semibold text-slate-900">{t('Unable to load your workspace')}</h1>
           <p role="alert" className="mt-3 text-sm text-red-700">{t('Workspace data could not be loaded. Please retry.')}</p>
           <button
             type="button"
@@ -135,7 +135,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             {t('Retry')}
           </button>
         </div>
-      </main>
+      </section>
     );
   }
 
