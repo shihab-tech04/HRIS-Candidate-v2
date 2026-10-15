@@ -432,9 +432,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 </button>
               </div>}
               {notificationError && <p role="alert" className="mb-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{notificationError}</p>}
-              {notifications.length === 0 ? (
+              {notifications.length === 0 && !data?.notification_load_error ? (
                 <p className="text-xs text-slate-500 py-4 text-center">{t('No unread notifications.')}</p>
-              ) : (
+              ) : notifications.length > 0 ? (
                 <div className="space-y-3">
                   {notifications.slice(0, 4).map((n: any) => (
                     (() => {
@@ -479,7 +479,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     })()
                   ))}
                 </div>
-              )}
+              ) : null}
             </div>
 
             {/* Integration Transparency Card */}

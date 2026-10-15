@@ -20,6 +20,7 @@ test('dashboard opens the linked application and retains a retryable read-state 
   assert.match(dashboard, /onSelectApplication\(route\.applicationId\)/);
   assert.match(dashboard, /markVerifiedCandidateNotificationRead/);
   assert.match(dashboard, /data\?\.notification_load_error/);
+  assert.match(dashboard, /notifications\.length === 0 && !data\?\.notification_load_error/);
   assert.match(dashboard, /Unable to update this notification\./);
 });
 
