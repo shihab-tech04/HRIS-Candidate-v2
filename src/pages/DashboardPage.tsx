@@ -125,14 +125,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     return (
       <main className="min-h-screen bg-slate-50 px-4 py-16">
         <div className="mx-auto max-w-4xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-8">
-          <h1 className="text-xl font-semibold text-slate-900">Unable to load your workspace</h1>
-          <p role="alert" className="mt-3 text-sm text-red-700">{loadError}</p>
+          <h1 className="text-xl font-semibold text-slate-900">{t('Unable to load your workspace')}</h1>
+          <p role="alert" className="mt-3 text-sm text-red-700">{t('Workspace data could not be loaded. Please try again.')}</p>
           <button
             type="button"
             className="min-h-11 mt-4 rounded-lg border border-slate-300 px-4 font-medium text-slate-800 hover:bg-slate-50"
             onClick={() => void loadContext()}
           >
-            Retry
+            {t('Retry')}
           </button>
         </div>
       </main>

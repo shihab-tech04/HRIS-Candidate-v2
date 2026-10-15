@@ -16,6 +16,8 @@ export const CANDIDATE_BENGALI: Readonly<Record<string, string>> = {
   'Updating…': 'হালনাগাদ হচ্ছে…',
   'Unable to update this notification.': 'বিজ্ঞপ্তি হালনাগাদ করা যায়নি।',
   'Unable to load notifications. Please retry.': 'বিজ্ঞপ্তি লোড করা যায়নি। আবার চেষ্টা করুন।',
+  'Unable to load your workspace': 'আপনার কর্মক্ষেত্র লোড করা যায়নি',
+  'Workspace data could not be loaded. Please try again.': 'কর্মক্ষেত্রের তথ্য লোড করা যায়নি। আবার চেষ্টা করুন।',
   'Read': 'পঠিত',
   'Unread': 'অপঠিত',
   'Language': 'ভাষা',
