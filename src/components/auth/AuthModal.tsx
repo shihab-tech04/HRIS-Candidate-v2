@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { CandidateLocaleSwitch, useCandidateLocale } from '../../context/CandidateLocaleContext';
 import { X, Mail, Lock, User, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
@@ -27,6 +27,74 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const fullNameInputRef = useRef<HTMLInputElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!wasOpenRef.current) {
+      openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      wasOpenRef.current = true;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      (mode === 'signup' ? fullNameInputRef.current : emailInputRef.current)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen, mode]);
+
+  useEffect(() => {
+    if (isOpen || !wasOpenRef.current) return;
+    wasOpenRef.current = false;
+    const opener = openerRef.current;
+    openerRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0);
+      if (!focusable.length) {
+        event.preventDefault();
+        titleRef.current?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      if (activeIndex < 0) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeIndex === 0) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeIndex === focusable.length - 1) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -84,11 +152,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" role="presentation">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="candidate-auth-dialog-title" aria-describedby="candidate-auth-dialog-description" className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header pattern */}
         <div className="bg-[#085587] text-white px-6 py-5 relative">
           <button
+            type="button"
             onClick={onClose}
             aria-label={t('Close authentication dialog')}
             className="absolute top-4 right-4 text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
@@ -100,12 +169,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {t('Synesis Careers Portal')}
             </span>
           </div>
-          <h2 className="text-xl font-bold tracking-tight">
+          <h2 ref={titleRef} id="candidate-auth-dialog-title" tabIndex={-1} className="text-xl font-bold tracking-tight">
             {mode === 'signin' && t('Welcome Back')}
             {mode === 'signup' && t('Create Candidate Account')}
             {mode === 'forgot' && t('Reset Your Password')}
           </h2>
-          <p className="text-xs text-sky-100/90 mt-1">
+          <p id="candidate-auth-dialog-description" className="text-xs text-sky-100/90 mt-1">
             {mode === 'signin' && t('Sign in to access your applications, interviews, and profile.')}
             {mode === 'signup' && t('Register once to apply to opportunities and manage your recruitment journey.')}
             {mode === 'forgot' && t('Enter your email address to receive password reset instructions.')}
@@ -158,14 +227,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+            <div role="alert" aria-live="assertive" className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               <span>{t(error)}</span>
             </div>
           )}
 
           {successMsg && (
-            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-start gap-2">
+            <div role="status" aria-live="polite" className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <span>{t(successMsg)}</span>
             </div>
@@ -174,12 +243,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <form onSubmit={handleSubmit} className="space-y-3.5">
             {mode === 'signup' && (
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label htmlFor="candidate-auth-full-name" className="block text-xs font-semibold text-slate-700 mb-1">
                   {t('Full Legal Name')}
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    ref={fullNameInputRef}
+                    id="candidate-auth-full-name"
                     type="text"
                     required
                     value={fullName}
@@ -192,12 +263,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label htmlFor="candidate-auth-email" className="block text-xs font-semibold text-slate-700 mb-1">
                 {t('Email Address')}
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
+                  ref={emailInputRef}
+                  id="candidate-auth-email"
                   type="email"
                   required
                   value={email}
@@ -211,7 +284,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode !== 'forgot' && (
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-700">{t('Password')}</label>
+                  <label htmlFor="candidate-auth-password" className="text-xs font-semibold text-slate-700">{t('Password')}</label>
                   {mode === 'signin' && (
                     <button
                       type="button"
@@ -225,6 +298,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    id="candidate-auth-password"
                     type="password"
                     required
                     value={password}
