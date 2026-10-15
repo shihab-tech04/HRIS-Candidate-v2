@@ -27,7 +27,8 @@ type CandidateRecruitmentContext = Record<string, any> & {
   document_requests: CandidateDocumentRequest[];
   offers: JobOffer[];
   onboarding: OnboardingHandoff | null;
-  notifications: CandidateNotification[];
+  notifications: Array<CandidateNotification | VerifiedCandidateNotification>;
+  notification_load_error?: boolean;
 };
 
 function normalizeDemoOnboardingHandoff(raw: Record<string, any>): OnboardingHandoff {
@@ -399,7 +400,15 @@ export async function getRecruitmentContext(userId: string): Promise<CandidateRe
       const { data, error } = await supabase.rpc('candidate_get_recruitment_context');
       if (!error && data) {
         const context = adaptLiveRecruitmentContext(data) as CandidateRecruitmentContext;
-        return { ...context, onboarding: null };
+        let notifications: VerifiedCandidateNotification[] = [];
+        let notification_load_error = false;
+        try {
+          notifications = await listVerifiedCandidateNotifications(userId);
+        } catch (notificationError) {
+          notification_load_error = true;
+          console.warn('Supabase candidate notifications error', notificationError);
+        }
+        return { ...context, notifications, notification_load_error, onboarding: null };
       }
       if (error) throw error;
     } catch (e) {
@@ -1275,7 +1284,10 @@ export type VerifiedCandidateNotification = {
   id: string;
   title: string;
   message: string;
+  notification_type: string;
+  related_application_id: string | null;
   related_job_id: string | null;
+  action_view: string | null;
   is_read: boolean;
   created_at: string;
 };
@@ -1340,19 +1352,35 @@ export async function deleteVerifiedCandidateJobAlert(userId: string, alertId: s
   if (error || !data) throw new Error(error?.message || 'Job alert is no longer available.');
 }
 
-/** Job-match notices are created by the existing database trigger, never by the candidate client. */
-export async function listVerifiedJobAlertNotifications(userId: string): Promise<VerifiedCandidateNotification[]> {
+/** Candidate notifications are read through owner-scoped RLS; writes are limited to the existing read-state field. */
+export async function listVerifiedCandidateNotifications(userId: string): Promise<VerifiedCandidateNotification[]> {
   const sb = await authorizedCandidate(userId);
   const { data, error } = await sb.from('candidate_notifications')
-    .select('id,title,message,related_job_id,is_read,created_at')
-    .eq('candidate_user_id', userId).eq('notification_type', 'job_alert_match')
+    .select('id,title,message,notification_type,related_application_id,related_job_id,action_view,is_read,created_at')
+    .eq('candidate_user_id', userId)
     .order('created_at', { ascending: false }).limit(50);
   if (error) throw new Error(error.message);
   return (data || []).map(row => ({
     id: String(row.id), title: String(row.title || ''), message: String(row.message || ''),
+    notification_type: String(row.notification_type || 'system'),
+    related_application_id: row.related_application_id == null ? null : String(row.related_application_id),
     related_job_id: row.related_job_id == null ? null : String(row.related_job_id),
+    action_view: row.action_view == null ? null : String(row.action_view),
     is_read: row.is_read === true, created_at: String(row.created_at || ''),
   }));
+}
+
+/** Preserve the saved-jobs page contract while sharing the owner-scoped notification read. */
+export async function listVerifiedJobAlertNotifications(userId: string): Promise<VerifiedCandidateNotification[]> {
+  return (await listVerifiedCandidateNotifications(userId))
+    .filter(notification => notification.notification_type === 'job_alert_match');
+}
+
+export async function markVerifiedCandidateNotificationRead(userId: string, notificationId: string): Promise<void> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_notifications').update({ is_read: true })
+    .eq('id', notificationId).eq('candidate_user_id', userId).select('id').maybeSingle();
+  if (error || !data) throw new Error(error?.message || 'Notification is no longer available.');
 }
 
 export async function markVerifiedJobAlertNotificationRead(userId: string, notificationId: string): Promise<void> {

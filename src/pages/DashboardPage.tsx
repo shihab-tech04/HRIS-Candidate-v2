@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getRecruitmentContext, getSavedJobs, getCandidateCVs } from '../lib/api';
+import { useCandidateLocale } from '../context/CandidateLocaleContext';
+import { getRecruitmentContext, getSavedJobs, getCandidateCVs, markVerifiedCandidateNotificationRead } from '../lib/api';
+import { candidateNotificationRoute } from '../lib/candidateNotificationRoutes';
 import {
   Briefcase,
   Calendar,
@@ -29,9 +31,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onSelectApplication
 }) => {
   const { user, profile } = useAuth();
+  const { locale, t } = useCandidateLocale();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [pendingNotificationIds, setPendingNotificationIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (user) {
@@ -61,6 +66,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       setLoadError(cause instanceof Error ? cause.message : 'Unable to load records. Please retry.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const markNotificationRead = async (notification: any) => {
+    if (!user || !notification?.notification_type || notification.is_read === true
+      || pendingNotificationIds.has(notification.id)) return;
+    const actorId = user.id;
+    setNotificationError(null);
+    setPendingNotificationIds(current => new Set(current).add(notification.id));
+    try {
+      await markVerifiedCandidateNotificationRead(actorId, notification.id);
+      if (user.id === actorId) {
+        setData((current: any) => current ? ({
+          ...current,
+          notifications: current.notifications.map((item: any) =>
+            item.id === notification.id ? { ...item, is_read: true } : item),
+        }) : current);
+      }
+    } catch {
+      setNotificationError(t('Unable to update this notification.'));
+    } finally {
+      setPendingNotificationIds(current => {
+        const next = new Set(current);
+        next.delete(notification.id);
+        return next;
+      });
     }
   };
 
@@ -390,28 +421,62 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             {/* Notifications */}
             <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
               <h2 className="text-base font-bold text-slate-900 mb-3 flex items-center justify-between">
-                <span>Recent Notifications</span>
+                <span>{t('Recent Notifications')}</span>
                 <Bell className="w-4 h-4 text-slate-400" />
               </h2>
 
+              {data?.notification_load_error && <div role="alert" className="mb-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-800">
+                <p>{t('Unable to load notifications. Please retry.')}</p>
+                <button type="button" onClick={() => void loadContext()} className="mt-2 min-h-9 rounded-lg border border-rose-300 bg-white px-3 font-medium">
+                  {t('Retry')}
+                </button>
+              </div>}
+              {notificationError && <p role="alert" className="mb-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{notificationError}</p>}
               {notifications.length === 0 ? (
-                <p className="text-xs text-slate-500 py-4 text-center">No unread notifications.</p>
+                <p className="text-xs text-slate-500 py-4 text-center">{t('No unread notifications.')}</p>
               ) : (
                 <div className="space-y-3">
                   {notifications.slice(0, 4).map((n: any) => (
-                    <div
-                      key={n.id}
-                      onClick={() => n.link && onNavigate(n.link.replace('/', ''))}
-                      className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs space-y-1 hover:bg-slate-100/60 cursor-pointer transition-colors"
-                    >
-                      <div className="flex items-center justify-between font-semibold text-slate-900">
-                        <span>{n.title}</span>
-                        <span className="text-[10px] text-slate-400 font-normal">
-                          {new Date(n.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <p className="text-slate-600 text-[11px] leading-relaxed">{n.message}</p>
-                    </div>
+                    (() => {
+                      const route = candidateNotificationRoute(n);
+                      const isApplicationUpdate = n.notification_type === 'application_update';
+                      const isRead = n.is_read === true || n.read === true;
+                      const title = isApplicationUpdate ? t('Application update') : n.title;
+                      const message = isApplicationUpdate
+                        ? t('Your application has a new update. Open the application timeline to review it.')
+                        : n.message;
+                      const openNotification = () => {
+                        if (route?.tab === 'applications' && route.applicationId) {
+                          if (onSelectApplication) onSelectApplication(route.applicationId);
+                          else onNavigate('applications');
+                        } else if (route) onNavigate(route.tab);
+                        else if (n.link) onNavigate(n.link.replace('/', ''));
+                      };
+                      const canOpen = Boolean(route || n.link);
+                      return <article key={n.id} className="rounded-xl border border-slate-200/80 bg-slate-50 p-3 text-xs space-y-2">
+                        <div className="flex items-start justify-between gap-3 font-semibold text-slate-900">
+                          <span className="min-w-0 break-words">{title}</span>
+                          <time dateTime={n.created_at} className="shrink-0 text-[10px] font-normal text-slate-400">
+                            {new Date(n.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD')}
+                          </time>
+                        </div>
+                        <p className="break-words text-slate-600 text-[11px] leading-relaxed">{message}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {canOpen && <button type="button" onClick={openNotification}
+                            className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 font-medium text-[#085587] hover:bg-sky-50">
+                            {route?.tab === 'applications' ? t('Open application')
+                              : route?.tab === 'saved-jobs' ? t('Open job alerts') : t('Open update')}
+                          </button>}
+                          {n.notification_type && <span className="text-[10px] text-slate-500">{isRead ? t('Read') : t('Unread')}</span>}
+                          {n.notification_type && !isRead && <button type="button"
+                            disabled={pendingNotificationIds.has(n.id)}
+                            onClick={() => void markNotificationRead(n)}
+                            className="min-h-9 rounded-lg px-2 font-medium text-slate-600 underline disabled:opacity-50">
+                            {pendingNotificationIds.has(n.id) ? t('Updating…') : t('Mark read')}
+                          </button>}
+                        </div>
+                      </article>;
+                    })()
                   ))}
                 </div>
               )}

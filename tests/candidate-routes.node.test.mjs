@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { candidateRouteHref, parseCandidateRoute } from '../src/lib/candidateRoutes.ts';
+import { candidateNotificationRoute } from '../src/lib/candidateNotificationRoutes.ts';
 
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 
@@ -18,6 +19,23 @@ test('application details restore the selected application', () => {
   assert.deepEqual(parseCandidateRoute('?view=applications&application=app-72'), {
     tab: 'applications', applicationId: 'app-72',
   });
+});
+
+test('candidate application notifications open the linked owner-scoped application timeline', () => {
+  assert.deepEqual(candidateNotificationRoute({
+    notification_type: 'application_update',
+    related_application_id: 'application-27',
+    related_job_id: 'job-9',
+  }), { tab: 'applications', applicationId: 'application-27' });
+  assert.deepEqual(candidateNotificationRoute({
+    notification_type: 'job_alert_match',
+    related_job_id: 'job-9',
+    action_view: 'https://example.test',
+  }), { tab: 'saved-jobs' });
+  assert.equal(candidateNotificationRoute({
+    notification_type: 'system',
+    related_application_id: 'application-27',
+  }), null);
 });
 
 test('invalid and incomplete routes recover to the vacancy list', () => {
