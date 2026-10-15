@@ -977,6 +977,7 @@ try {
   await assessmentQueueSection.getByText(assessmentArguments.p_title, { exact: true }).waitFor({ timeout: 20000 });
   await assessmentQueueSection.getByText(/normalized relational model/).waitFor();
   await assessmentQueueSection.getByRole('link', { name: 'systems-design-exercise' }).waitFor();
+  await assessmentQueueSection.getByRole('button', { name: 'Review submission' }).click();
   await assessmentQueueSection.getByRole('button', { name: 'Mark review complete' }).click();
   await assessmentQueueSection.getByText('Review complete', { exact: true }).waitFor({ timeout: 20000 });
   const reviewedAssessment = await admin.from('candidate_assessments').select('status,reviewed_by,reviewed_at,review_note').eq('id', assignedAssessment.data.id).single();
