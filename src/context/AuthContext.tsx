@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getSupabaseClient } from '../lib/supabase';
+import { candidateAppRedirectTo, candidateRecoveryCallbackError, candidateRecoveryRedirectTo } from '../lib/candidateRecovery';
 import { CandidateProfile } from '../types';
 import { getMyCandidateProfile, updateCandidateProfile } from '../lib/api';
 
@@ -21,6 +22,10 @@ interface AuthContextType {
   signUp: (email: string, password?: string, fullName?: string) => Promise<{ success: boolean; error?: string; verificationRequired?: boolean }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
+  passwordRecoveryRequired: boolean;
+  passwordRecoveryError: string | null;
+  updateRecoveryPassword: (password: string) => Promise<{ success: boolean; error?: string }>;
+  cancelPasswordRecovery: () => Promise<void>;
   signInAsDemoCandidate: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -34,11 +39,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState<boolean>(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [passwordRecoveryRequired, setPasswordRecoveryRequired] = useState(false);
+  const [passwordRecoveryError, setPasswordRecoveryError] = useState<string | null>(null);
 
   // Initialize auth
   useEffect(() => {
+    const callbackError = candidateRecoveryCallbackError(window.location);
+    if (callbackError) setPasswordRecoveryError(callbackError);
     const supabase = getSupabaseClient();
     if (supabase) {
+      const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryRequired(true);
+        if (event === 'SIGNED_OUT') setPasswordRecoveryRequired(false);
+        if (session?.user) {
+          const u: User = {
+            id: session.user.id,
+            email: session.user.email || '',
+            user_metadata: session.user.user_metadata as any
+          };
+          setUser(u);
+          loadProfile(u.id, u.email, session.user.user_metadata?.full_name);
+        } else {
+          checkLocalSession();
+        }
+      });
+
       supabase.auth.getUser().then(({ data: { user: verified }, error }) => {
         if (!error && verified) {
           const session = { user: verified };
@@ -57,20 +82,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         setProfile(null);
         setLoading(false);
-      });
-
-      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          const u: User = {
-            id: session.user.id,
-            email: session.user.email || '',
-            user_metadata: session.user.user_metadata as any
-          };
-          setUser(u);
-          loadProfile(u.id, u.email, session.user.user_metadata?.full_name);
-        } else {
-          checkLocalSession();
-        }
       });
 
       return () => {
@@ -177,6 +188,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email,
           password,
           options: {
+            emailRedirectTo: candidateAppRedirectTo(window.location),
             data: { full_name: fullName }
           }
         });
@@ -228,6 +240,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else if (!DEMO_MODE) {
       throw new Error('Authentication service unavailable.');
     }
+    setPasswordRecoveryRequired(false);
+    setPasswordRecoveryError(null);
     localStorage.removeItem('synesis_candidate_auth_session');
     setUser(null);
     setProfile(null);
@@ -237,14 +251,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const supabase = getSupabaseClient();
     if (supabase) {
       try {
-        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: candidateRecoveryRedirectTo(window.location),
+        });
         if (error) return { success: false, error: error.message };
+        setPasswordRecoveryError(null);
         return { success: true };
       } catch (e: any) {
         return { success: false, error: e?.message || 'Password reset request failed.' };
       }
     }
     return { success: false, error: 'Password reset service is not configured.' };
+  };
+
+  const updateRecoveryPassword = async (password: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !password) return { success: false, error: 'Password update failed. Please retry.' };
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) return { success: false, error: error.message };
+
+      // The password change succeeds independently of sign-out availability.
+      try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* Recovery state is cleared below. */ }
+      setPasswordRecoveryRequired(false);
+      setPasswordRecoveryError(null);
+      setUser(null);
+      setProfile(null);
+      setProfileLoading(false);
+      setProfileError(null);
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Password update failed. Please retry.' };
+    }
+  };
+
+  const cancelPasswordRecovery = async () => {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* Clear local recovery state even if Auth is unavailable. */ }
+    }
+    setPasswordRecoveryRequired(false);
+    setPasswordRecoveryError(null);
+    setUser(null);
+    setProfile(null);
+    setProfileLoading(false);
+    setProfileError(null);
   };
 
   const signInAsDemoCandidate = async () => {
@@ -278,6 +329,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signUp,
         signOut,
         resetPassword,
+        passwordRecoveryRequired,
+        passwordRecoveryError,
+        updateRecoveryPassword,
+        cancelPasswordRecovery,
         signInAsDemoCandidate,
         refreshProfile
       }}

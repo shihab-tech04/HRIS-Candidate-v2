@@ -6,7 +6,7 @@ import { X, Mail, Lock, User, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialMode?: 'signin' | 'signup';
+  initialMode?: 'signin' | 'signup' | 'forgot' | 'recovery';
   returnNotice?: string;
   onSuccess?: () => void;
 }
@@ -18,21 +18,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   returnNotice,
   onSuccess
 }) => {
-  const { signIn, signUp, resetPassword, signInAsDemoCandidate } = useAuth();
+  const { signIn, signUp, resetPassword, updateRecoveryPassword, signInAsDemoCandidate } = useAuth();
   const { t } = useCandidateLocale();
-  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot' | 'recovery'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState(returnNotice);
   const [loading, setLoading] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const fullNameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setMode(initialMode);
+    setError(null);
+    setSuccessMsg(null);
+    setNoticeMessage(returnNotice);
+  }, [isOpen, initialMode, returnNotice]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -41,7 +52,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       wasOpenRef.current = true;
     }
     const frame = window.requestAnimationFrame(() => {
-      (mode === 'signup' ? fullNameInputRef.current : emailInputRef.current)?.focus();
+      (mode === 'signup' ? fullNameInputRef.current : mode === 'recovery' ? passwordInputRef.current : emailInputRef.current)?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
   }, [isOpen, mode]);
@@ -133,7 +144,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (!res.success) {
           setError(res.error || 'Password recovery request failed.');
         } else {
+          setNoticeMessage(undefined);
           setSuccessMsg('Password reset instructions sent. Please check your inbox.');
+        }
+      } else if (mode === 'recovery') {
+        if (password !== confirmPassword) {
+          setError('Passwords do not match.');
+          return;
+        }
+        const res = await updateRecoveryPassword(password);
+        if (!res.success) {
+          setError(res.error || 'Password update failed. Please retry.');
+        } else {
+          setMode('signin');
+          setPassword('');
+          setConfirmPassword('');
+          setSuccessMsg('Password updated. Please sign in with your new password.');
         }
       }
     } catch (err: any) {
@@ -159,7 +185,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            aria-label={t('Close authentication dialog')}
+            aria-label={t(mode === 'recovery' ? 'Cancel password reset' : 'Close authentication dialog')}
             className="absolute top-4 right-4 text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -173,11 +199,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'signin' && t('Welcome Back')}
             {mode === 'signup' && t('Create Candidate Account')}
             {mode === 'forgot' && t('Reset Your Password')}
+            {mode === 'recovery' && t('Set a New Password')}
           </h2>
           <p id="candidate-auth-dialog-description" className="text-xs text-sky-100/90 mt-1">
             {mode === 'signin' && t('Sign in to access your applications, interviews, and profile.')}
             {mode === 'signup' && t('Register once to apply to opportunities and manage your recruitment journey.')}
             {mode === 'forgot' && t('Enter your email address to receive password reset instructions.')}
+            {mode === 'recovery' && t('Choose and confirm a new password for your account.')}
           </p>
         </div>
 
@@ -185,10 +213,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="flex justify-end mb-3">
             <CandidateLocaleSwitch />
           </div>
-          {returnNotice && (
-            <div className="mb-4 p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-800 flex items-start gap-2">
+          {noticeMessage && (
+            <div role="status" className="mb-4 p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-800 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-[#085587] shrink-0 mt-0.5" />
-              <span>{t(returnNotice)}</span>
+              <span>{t(noticeMessage)}</span>
             </div>
           )}
 
@@ -262,7 +290,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             )}
 
-            <div>
+            {mode !== 'recovery' && <div>
               <label htmlFor="candidate-auth-email" className="block text-xs font-semibold text-slate-700 mb-1">
                 {t('Email Address')}
               </label>
@@ -279,12 +307,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#085587] focus:border-transparent"
                 />
               </div>
-            </div>
+            </div>}
 
             {mode !== 'forgot' && (
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="candidate-auth-password" className="text-xs font-semibold text-slate-700">{t('Password')}</label>
+                  <label htmlFor="candidate-auth-password" className="text-xs font-semibold text-slate-700">{t(mode === 'recovery' ? 'New Password' : 'Password')}</label>
                   {mode === 'signin' && (
                     <button
                       type="button"
@@ -298,9 +326,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    ref={mode === 'recovery' ? passwordInputRef : undefined}
                     id="candidate-auth-password"
                     type="password"
                     required
+                    autoComplete={mode === 'recovery' || mode === 'signup' ? 'new-password' : 'current-password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
@@ -309,6 +339,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
             )}
+
+            {mode === 'recovery' && <div>
+              <label htmlFor="candidate-auth-confirm-password" className="block text-xs font-semibold text-slate-700 mb-1">{t('Confirm New Password')}</label>
+              <input
+                id="candidate-auth-confirm-password"
+                type="password"
+                required
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={event => setConfirmPassword(event.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#085587] focus:border-transparent"
+              />
+            </div>}
 
             <button
               type="submit"
@@ -321,6 +364,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 t('Sign In to Synesis Careers')
               ) : mode === 'signup' ? (
                 t('Create Candidate Account')
+              ) : mode === 'recovery' ? (
+                t('Update Password')
               ) : (
                 t('Send Recovery Email')
               )}
@@ -367,6 +412,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </button>
               </p>
             )}
+            {mode === 'recovery' && <p>{t('This secure link is for one password change. You can cancel to return to the careers site.')}</p>}
           </div>
         </div>
       </div>

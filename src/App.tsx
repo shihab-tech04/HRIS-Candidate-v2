@@ -40,7 +40,7 @@ function isCandidateTab(tab: string): tab is CandidateTab {
 }
 
 function MainAppContent() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, passwordRecoveryRequired, passwordRecoveryError, cancelPasswordRecovery } = useAuth();
   const [initialRoute] = useState(() => parseCandidateRoute(window.location.search));
   const [currentTab, setCurrentTabState] = useState<CandidateTab>(initialRoute.tab);
   const [selectedJobId, setSelectedJobId] = useState<string>(initialRoute.jobId || DEFAULT_JOB_ID);
@@ -48,7 +48,7 @@ function MainAppContent() {
 
   // Modals
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
+  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup' | 'forgot' | 'recovery'>('signin');
   const [authReturnNotice, setAuthReturnNotice] = useState<string | undefined>(undefined);
   const [configModalOpen, setConfigModalOpen] = useState(false);
 
@@ -72,6 +72,25 @@ function MainAppContent() {
     setAuthModalMode('signin');
     setAuthModalOpen(true);
   }, [authLoading, currentTab, user]);
+
+  useEffect(() => {
+    if (!passwordRecoveryRequired) return;
+    setAuthModalMode('recovery');
+    setAuthReturnNotice(undefined);
+    setAuthModalOpen(true);
+  }, [passwordRecoveryRequired]);
+
+  useEffect(() => {
+    if (!passwordRecoveryError) return;
+    setAuthModalMode('forgot');
+    setAuthReturnNotice(passwordRecoveryError);
+    setAuthModalOpen(true);
+  }, [passwordRecoveryError]);
+
+  const closeAuthModal = async () => {
+    if (passwordRecoveryRequired) await cancelPasswordRecovery();
+    setAuthModalOpen(false);
+  };
 
   const navigateToTab = (tab: string, options: { jobId?: string; applicationId?: string } = {}) => {
     const nextTab: CandidateTab = isCandidateTab(tab) ? tab : 'jobs';
@@ -228,7 +247,7 @@ function MainAppContent() {
 
       <AuthModal
         isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
+        onClose={() => { void closeAuthModal(); }}
         initialMode={authModalMode}
         returnNotice={authReturnNotice}
         onSuccess={handleAuthSuccess}
