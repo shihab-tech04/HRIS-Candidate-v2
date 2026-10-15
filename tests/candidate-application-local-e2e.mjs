@@ -187,6 +187,24 @@ try {
   psql(readFileSync(path.join(mainRoot, 'tests/sql/candidate-c1/tenant-fixture.sql'), 'utf8'));
   psql(readFileSync(path.join(candidateRoot, 'tests/candidate-application-local-fixture.sql'), 'utf8'));
   for (const migration of migrationPaths) psql(readFileSync(migration, 'utf8'));
+  const stageHistoryAccess = JSON.parse(psql(`SELECT jsonb_build_object(
+    'rls_enabled', c.relrowsecurity,
+    'public_select', EXISTS (
+      SELECT 1
+      FROM aclexplode(COALESCE(c.relacl, acldefault('r'::"char", c.relowner))) privilege
+      WHERE privilege.grantee = 0 AND privilege.privilege_type = 'SELECT'
+    ),
+    'anon_select', has_table_privilege('anon', c.oid, 'SELECT'),
+    'authenticated_select', has_table_privilege('authenticated', c.oid, 'SELECT'),
+    'service_role_select', has_table_privilege('service_role', c.oid, 'SELECT')
+  ) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relname = 'candidate_application_stage_history'`).trim());
+  assert(stageHistoryAccess.rls_enabled === true
+    && stageHistoryAccess.public_select === false
+    && stageHistoryAccess.anon_select === false
+    && stageHistoryAccess.authenticated_select === false
+    && stageHistoryAccess.service_role_select === true,
+  `Candidate stage-history grants/RLS were not restricted to the server: ${JSON.stringify(stageHistoryAccess)}`);
   psql("NOTIFY pgrst, 'reload schema';");
   await waitForApiTable('jobs');
   fixtureReady = true;
@@ -1389,7 +1407,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=policy-gated+manager-denied unauthorized-activation=6-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history stage_history_acl=rls+public-anon-authenticated-denied+service-role-preserved assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=policy-gated+manager-denied unauthorized-activation=6-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } catch (cause) {
   console.error('CANDIDATE_APPLICATION_LOCAL_E2E ERROR:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
   throw cause;
