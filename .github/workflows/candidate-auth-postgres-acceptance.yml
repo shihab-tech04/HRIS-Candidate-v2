@@ -71,7 +71,7 @@ jobs:
       - name: Run Candidate route, localization, type and build regressions
         run: |
           set -euo pipefail
-          bun test tests
+          bun test ./tests/*.test.*
           npm run test:routes
           bun run lint
           bunx vite build --base=/HRIS-Candidate-v2/
