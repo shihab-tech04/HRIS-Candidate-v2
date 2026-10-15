@@ -14,6 +14,7 @@ test('Candidate Auth/RLS CI is disposable, development-only, least-privilege, an
   assert.match(workflow, /node tests\/sql\/candidate-c1\/run-local-tenant-auth\.mjs/);
   assert.match(workflow, /node tests\/candidate-profile-local-e2e\.mjs/);
   assert.match(workflow, /node tests\/candidate-application-local-e2e\.mjs/);
+  assert.match(workflow, /bun test tests/);
   assert.match(workflow, /supabase start --workdir/);
   assert.match(workflow, /supabase stop --workdir .*--no-backup/);
   assert.doesNotMatch(workflow, /pull_request_target|deploy-pages|supabase\.co|secrets\./i);
