@@ -33,8 +33,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: HRIS-v2/package-lock.json
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
@@ -45,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           bun install --frozen-lockfile
-          npm ci --no-audit --no-fund --prefix "$HRIS_MAIN_REPO_ROOT"
+          npm install --no-package-lock --no-audit --no-fund --prefix "$HRIS_MAIN_REPO_ROOT"
       - name: Create a dedicated local Candidate Auth and Postgres stack
         run: |
           set -euo pipefail
