@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { CandidateLocaleProvider } from './context/CandidateLocaleContext';
 import { Navbar } from './components/common/Navbar';
 import { Footer } from './components/common/Footer';
 import { AuthModal } from './components/auth/AuthModal';
@@ -243,8 +244,10 @@ function MainAppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      {import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true' ? <PublicOnlyCareers /> : <MainAppContent />}
-    </AuthProvider>
+    <CandidateLocaleProvider>
+      <AuthProvider>
+        {import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true' ? <PublicOnlyCareers /> : <MainAppContent />}
+      </AuthProvider>
+    </CandidateLocaleProvider>
   );
 }

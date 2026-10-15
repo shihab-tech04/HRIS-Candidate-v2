@@ -3,6 +3,7 @@ import { PublishedJob } from '../types';
 import { getPublishedJobs, toggleVerifiedSavedJob, listVerifiedSavedJobIds } from '../lib/api';
 import { createLatestRequestGate } from '../lib/latestRequest.mjs';
 import { useAuth } from '../context/AuthContext';
+import { useCandidateLocale } from '../context/CandidateLocaleContext';
 import careersHero from '../assets/images/hero_synesis_careers_1791597880870.jpg';
 import cultureImage from '../assets/images/synesis_culture_workspace_1791597892615.jpg';
 import {
@@ -35,11 +36,12 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   publicOnly = false
 }) => {
   const { user } = useAuth();
+  const { locale, t } = useCandidateLocale();
   const [jobs, setJobs] = useState<PublishedJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savedJobsError, setSavedJobsError] = useState<string | null>(null);
-  const [savedJobsStatus, setSavedJobsStatus] = useState('');
+  const [savedJobsStatus, setSavedJobsStatus] = useState<{ key: string; title: string } | null>(null);
   const [search, setSearch] = useState('');
   const [submittedSearch, setSubmittedSearch] = useState('');
   const [searchVersion, setSearchVersion] = useState(0);
@@ -78,7 +80,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
     setSavedJobIds(new Set());
     setSavingJobIds(new Set());
     setSavedJobsError(null);
-    setSavedJobsStatus('');
+    setSavedJobsStatus(null);
     if (user && !publicOnly) {
       void listVerifiedSavedJobIds(user.id)
         .then(ids => { if (active) setSavedJobIds(new Set(ids)); })
@@ -102,7 +104,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
     if (savingJobIds.has(job.id)) return;
     setSavingJobIds(prev => new Set(prev).add(job.id));
     setSavedJobsError(null);
-    setSavedJobsStatus('');
+    setSavedJobsStatus(null);
     try {
       const saved=await toggleVerifiedSavedJob(userId,job.id,job);
       if (activeUserId.current === userId) {
@@ -111,7 +113,10 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
           if (saved) next.add(job.id); else next.delete(job.id);
           return next;
         });
-        setSavedJobsStatus(saved ? `${job.title} was saved to your account.` : `${job.title} was removed from saved jobs.`);
+        setSavedJobsStatus({
+          key: saved ? '{title} was saved to your account.' : '{title} was removed from saved jobs.',
+          title: job.title,
+        });
       }
     } catch (e) {
       if (activeUserId.current === userId) setSavedJobsError(e instanceof Error ? e.message : 'Unable to update saved job.');
@@ -134,40 +139,42 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   const formatSalary = (min?: number, max?: number, currency = 'BDT') => {
     if (!min && !max) return null;
     const formatNum = (num: number) =>
-      new Intl.NumberFormat('en-BD', { maximumFractionDigits: 0 }).format(num);
+      new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD', { maximumFractionDigits: 0 }).format(num);
 
     if (min && max) {
       return `${currency} ${formatNum(min)} – ${formatNum(max)}`;
     }
-    if (min) return `From ${currency} ${formatNum(min)}`;
-    if (max) return `Up to ${currency} ${formatNum(max)}`;
+    if (min) return t('From {currency} {amount}', { currency, amount: formatNum(min) });
+    if (max) return t('Up to {currency} {amount}', { currency, amount: formatNum(max) });
     return null;
   };
 
   const formatDeadline = (isoString: string) => {
     const d = new Date(isoString);
     const diffDays = Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    if (diffDays < 0) return 'Expired';
-    if (diffDays === 0) return 'Closes today';
-    if (diffDays === 1) return 'Closes tomorrow';
-    return `${diffDays} days left`;
+    if (diffDays < 0) return t('Expired');
+    if (diffDays === 0) return t('Closes today');
+    if (diffDays === 1) return t('Closes tomorrow');
+    return t('{count} days left', {
+      count: new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD').format(diffDays),
+    });
   };
 
   return (
     <div className="min-h-screen bg-slate-50">
       {(loadError || savedJobsError) && (
         <div role="alert" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <p className="border border-rose-200 bg-rose-50 text-rose-800 rounded-lg p-3 text-sm">{loadError || savedJobsError}</p>
+          <p className="border border-rose-200 bg-rose-50 text-rose-800 rounded-lg p-3 text-sm">{t(loadError || savedJobsError || '')}</p>
         </div>
       )}
-      {savedJobsStatus && <p role="status" aria-live="polite" className="sr-only">{savedJobsStatus}</p>}
+      {savedJobsStatus && <p role="status" aria-live="polite" className="sr-only">{t(savedJobsStatus.key, { title: savedJobsStatus.title })}</p>}
       {/* Hero Section */}
       <section className="relative bg-slate-900 text-white overflow-hidden">
         {/* Background Image with Scrim */}
         <div className="absolute inset-0">
           <img
             src={careersHero}
-            alt="Synesis Careers Workplace"
+            alt={t('Synesis Careers Workplace')}
             className="w-full h-full object-cover opacity-25"
             referrerPolicy="no-referrer"
           />
@@ -177,28 +184,28 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
           <div className="max-w-2xl">
             <span className="text-xs uppercase tracking-widest font-semibold text-sky-400 mb-3 block">
-              Official Synesis IT Careers
+              {t('Official Synesis IT Careers')}
             </span>
             <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-6 leading-tight">
-              Build Mission-Critical Platforms That Move Nations Forward
+              {t('Build Mission-Critical Platforms That Move Nations Forward')}
             </h1>
             <p className="text-base sm:text-lg text-slate-300 font-normal leading-relaxed mb-8">
-              Explore roles at Synesis IT. Candidate registration and applications are temporarily unavailable while privacy and access checks are completed.
+              {t('Explore roles at Synesis IT. Candidate registration and applications are temporarily unavailable while privacy and access checks are completed.')}
             </p>
 
             {/* Quick Hero Highlights */}
             <div className="flex flex-wrap items-center gap-6 text-xs text-slate-300 pt-2 border-t border-slate-800/80">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>View verified published vacancies</span>
+                <span>{t('View verified published vacancies')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Search roles by department and work type</span>
+                <span>{t('Search roles by department and work type')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Applications will open after security testing</span>
+                <span>{t('Applications will open after security testing')}</span>
               </div>
             </div>
           </div>
@@ -215,10 +222,10 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                 <input
                   type="text"
-                  aria-label="Search vacancies"
+                  aria-label={t('Search vacancies')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by job title, skill (TypeScript, Docker), or keyword..."
+                  placeholder={t('Search by job title, skill (TypeScript, Docker), or keyword...')}
                   className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#085587] focus:bg-white transition-all"
                 />
               </div>
@@ -226,7 +233,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                 type="submit"
                 className="py-2.5 px-6 bg-[#085587] text-white text-xs sm:text-sm font-semibold rounded-xl hover:bg-[#074771] transition-colors whitespace-nowrap shadow-sm flex items-center justify-center gap-2"
               >
-                Find Vacancies
+                {t('Find Vacancies')}
               </button>
             </div>
 
@@ -234,7 +241,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
             <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold text-slate-500 mr-1 flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5" /> Department:
+                  <Filter className="w-3.5 h-3.5" /> {t('Department:')}
                 </span>
                 <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg max-w-full min-w-0">
                   {departments.map((dept) => (
@@ -248,7 +255,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      {dept}
+                      {t(dept)}
                     </button>
                   ))}
                 </div>
@@ -256,32 +263,32 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
 
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-1.5 text-xs">
-                  <span className="font-semibold text-slate-500">Workplace:</span>
+                  <span className="font-semibold text-slate-500">{t('Workplace:')}</span>
                   <select
                     value={workplaceType}
-                    aria-label="Workplace type"
+                    aria-label={t('Workplace type')}
                     onChange={(e) => setWorkplaceType(e.target.value)}
                     className="bg-slate-100 border-none text-xs rounded-lg px-2.5 py-1 text-slate-700 font-medium focus:ring-2 focus:ring-[#085587]"
                   >
                     {workplaceTypes.map((w) => (
                       <option key={w} value={w}>
-                        {w}
+                        {t(w)}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div className="flex items-center gap-1.5 text-xs">
-                  <span className="font-semibold text-slate-500">Type:</span>
+                  <span className="font-semibold text-slate-500">{t('Type:')}</span>
                   <select
                     value={employmentType}
-                    aria-label="Employment type"
+                    aria-label={t('Employment type')}
                     onChange={(e) => setEmploymentType(e.target.value)}
                     className="bg-slate-100 border-none text-xs rounded-lg px-2.5 py-1 text-slate-700 font-medium focus:ring-2 focus:ring-[#085587]"
                   >
                     {employmentTypes.map((eType) => (
                       <option key={eType} value={eType}>
-                        {eType}
+                        {t(eType)}
                       </option>
                     ))}
                   </select>
@@ -295,10 +302,12 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
         <div className="flex items-center justify-between mb-4 px-1">
           <div>
             <h2 className="text-lg font-bold text-slate-900">
-              Published Career Opportunities
+              {t('Published Career Opportunities')}
             </h2>
             <p className="text-xs text-slate-500">
-              {loading ? 'Fetching active vacancies...' : `${jobs.length} active positions available`}
+              {loading ? t('Fetching active vacancies...') : t('{count} active positions available', {
+                count: new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD').format(jobs.length),
+              })}
             </p>
           </div>
         </div>
@@ -320,9 +329,9 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
         ) : jobs.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 my-6">
             <Briefcase className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-            <h3 className="text-base font-bold text-slate-800 mb-1">No vacancies found</h3>
+            <h3 className="text-base font-bold text-slate-800 mb-1">{t('No vacancies found')}</h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
-              We couldn't find any published roles matching your current filter criteria. Try adjusting your keywords or clearing filters.
+              {t("We couldn't find any published roles matching your current filter criteria. Try adjusting your keywords or clearing filters.")}
             </p>
             <button
               onClick={() => {
@@ -335,7 +344,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
               }}
               className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors"
             >
-              Reset All Filters
+              {t('Reset All Filters')}
             </button>
           </div>
         ) : (
@@ -359,18 +368,25 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                     <div className="space-y-2 flex-1">
                       {/* Zero-Pill Metadata Line */}
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
-                        <span className="text-[#085587] font-semibold">{job.department}</span>
+                        <span className="text-[#085587] font-semibold">{t(job.department)}</span>
                         <span aria-hidden="true">·</span>
                         <span>{job.location}</span>
                         <span aria-hidden="true">·</span>
-                        <span>{job.workplace_type}</span>
+                        <span>{t(job.workplace_type)}</span>
                         <span aria-hidden="true">·</span>
-                        <span>{job.employment_type}</span>
+                        <span>{t(job.employment_type)}</span>
                       </div>
 
                       {/* Job Title */}
                       <h3 className="text-base sm:text-lg font-bold text-slate-900 group-hover:text-[#085587] transition-colors leading-snug">
-                        {job.title}
+                        <button
+                          type="button"
+                          className="text-left focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#085587]"
+                          onClick={event => { event.stopPropagation(); onSelectJob(job.id); }}
+                          aria-label={t('View vacancy: {title}', { title: job.title })}
+                        >
+                          {job.title}
+                        </button>
                       </h3>
 
                       {/* Summary */}
@@ -390,7 +406,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                         <div className="flex items-center gap-1">
                           <Users className="w-3.5 h-3.5 text-slate-400" />
                           <span>
-                            {job.vacancy_count} {job.vacancy_count === 1 ? 'vacancy' : 'vacancies'}
+                            {new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD').format(job.vacancy_count)} {t(job.vacancy_count === 1 ? 'vacancy' : 'vacancies')}
                           </span>
                         </div>
 
@@ -398,12 +414,15 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                           <Clock className="w-3.5 h-3.5 text-slate-400" />
                           <span
                             className={
-                              deadlineText.includes('today') || deadlineText.includes('tomorrow')
+                              deadlineText === t('Closes today') || deadlineText === t('Closes tomorrow')
                                 ? 'text-amber-600 font-medium'
                                 : ''
                             }
                           >
-                            Deadline: {new Date(job.application_deadline).toLocaleDateString()} ({deadlineText})
+                            {t('Deadline: {date} ({relative})', {
+                              date: new Date(job.application_deadline).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD'),
+                              relative: deadlineText,
+                            })}
                           </span>
                         </div>
                       </div>
@@ -414,8 +433,8 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                       <button
                         type="button"
                         onClick={(e) => handleToggleSave(job, e)}
-                        title={isSaved ? 'Remove from Saved Jobs' : 'Save Job for Later'}
-                        aria-label={isSaved ? `Remove ${job.title} from saved jobs` : `Save ${job.title} for later`}
+                        title={isSaved ? t('Remove from Saved Jobs') : t('Save Job for Later')}
+                        aria-label={isSaved ? t('Remove {title} from saved jobs', { title: job.title }) : t('Save {title} for later', { title: job.title })}
                         aria-pressed={isSaved}
                         aria-busy={savingJobIds.has(job.id)}
                         disabled={savingJobIds.has(job.id)}
@@ -440,7 +459,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                         }}
                         className="py-2 px-4 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors whitespace-nowrap shadow-sm flex items-center gap-1.5"
                       >
-                        Apply Now
+                        {t('Apply Now')}
                         <ArrowRight className="w-3 h-3" />
                       </button>
                     </div>
@@ -456,29 +475,29 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 items-center">
             <div className="p-8 sm:p-12 space-y-4">
               <span className="text-xs uppercase font-semibold tracking-wider text-[#085587]">
-                Workplace & Engineering Culture
+                {t('Workplace & Engineering Culture')}
               </span>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 leading-snug">
-                Engineering at Scale with Purpose
+                {t('Engineering at Scale with Purpose')}
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                Explore career opportunities at Synesis IT and learn how our teams collaborate on digital products and services.
+                {t('Explore career opportunities at Synesis IT and learn how our teams collaborate on digital products and services.')}
               </p>
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100 text-xs">
                 <div>
-                  <p className="font-bold text-slate-900 text-base">Collaborative teams</p>
-                  <p className="text-slate-500">Across technical disciplines</p>
+                  <p className="font-bold text-slate-900 text-base">{t('Collaborative teams')}</p>
+                  <p className="text-slate-500">{t('Across technical disciplines')}</p>
                 </div>
                 <div>
-                  <p className="font-bold text-slate-900 text-base">Engineering practices</p>
-                  <p className="text-slate-500">Focused on reliable delivery</p>
+                  <p className="font-bold text-slate-900 text-base">{t('Engineering practices')}</p>
+                  <p className="text-slate-500">{t('Focused on reliable delivery')}</p>
                 </div>
               </div>
             </div>
             <div className="h-64 sm:h-80 lg:h-full">
               <img
                 src={cultureImage}
-                alt="Synesis team collaboration"
+                alt={t('Synesis team collaboration')}
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />

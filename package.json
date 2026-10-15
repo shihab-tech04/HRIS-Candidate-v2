@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:routes": "node --import tsx --test tests/candidate-routes.node.test.mjs tests/candidate-dashboard-recovery.node.test.mjs tests/candidate-profile-adapters.node.test.mjs tests/candidate-profile-loading.node.test.mjs tests/candidate-application-contract.node.test.mjs",
+    "test:routes": "node --import tsx --test tests/candidate-routes.node.test.mjs tests/candidate-dashboard-recovery.node.test.mjs tests/candidate-profile-adapters.node.test.mjs tests/candidate-profile-loading.node.test.mjs tests/candidate-application-contract.node.test.mjs tests/candidate-localization.node.test.mjs",
     "test:local-profile-e2e": "node tests/candidate-profile-local-e2e.mjs",
     "test:local-application-e2e": "node tests/candidate-application-local-e2e.mjs"
   },

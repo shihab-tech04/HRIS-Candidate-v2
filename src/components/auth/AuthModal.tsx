@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { CandidateLocaleSwitch, useCandidateLocale } from '../../context/CandidateLocaleContext';
 import { X, Mail, Lock, User, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface AuthModalProps {
@@ -18,6 +19,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onSuccess
 }) => {
   const { signIn, signUp, resetPassword, signInAsDemoCandidate } = useAuth();
+  const { t } = useCandidateLocale();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -88,32 +90,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         <div className="bg-[#085587] text-white px-6 py-5 relative">
           <button
             onClick={onClose}
+            aria-label={t('Close authentication dialog')}
             className="absolute top-4 right-4 text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs uppercase tracking-wider font-semibold text-sky-200">
-              Synesis Careers Portal
+              {t('Synesis Careers Portal')}
             </span>
           </div>
           <h2 className="text-xl font-bold tracking-tight">
-            {mode === 'signin' && 'Welcome Back'}
-            {mode === 'signup' && 'Create Candidate Account'}
-            {mode === 'forgot' && 'Reset Your Password'}
+            {mode === 'signin' && t('Welcome Back')}
+            {mode === 'signup' && t('Create Candidate Account')}
+            {mode === 'forgot' && t('Reset Your Password')}
           </h2>
           <p className="text-xs text-sky-100/90 mt-1">
-            {mode === 'signin' && 'Sign in to access your applications, interviews, and profile.'}
-            {mode === 'signup' && 'Register once to apply to opportunities and manage your recruitment journey.'}
-            {mode === 'forgot' && 'Enter your email address to receive password reset instructions.'}
+            {mode === 'signin' && t('Sign in to access your applications, interviews, and profile.')}
+            {mode === 'signup' && t('Register once to apply to opportunities and manage your recruitment journey.')}
+            {mode === 'forgot' && t('Enter your email address to receive password reset instructions.')}
           </p>
         </div>
 
         <div className="p-6">
+          <div className="flex justify-end mb-3">
+            <CandidateLocaleSwitch />
+          </div>
           {returnNotice && (
             <div className="mb-4 p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-800 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-[#085587] shrink-0 mt-0.5" />
-              <span>{returnNotice}</span>
+              <span>{t(returnNotice)}</span>
             </div>
           )}
 
@@ -123,11 +129,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-[#085587]" />
-                Evaluation / Reviewer Quick Access
+                {t('Evaluation / Reviewer Quick Access')}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 mb-2.5">
-              Instant sign-in with verified sample candidate profile, active applications, interview invitation, and offer record.
+              {t('Instant sign-in with verified sample candidate profile, active applications, interview invitation, and offer record.')}
             </p>
             <button
               type="button"
@@ -135,7 +141,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               disabled={loading}
               className="w-full py-2 px-3 text-xs font-medium text-[#085587] bg-white border border-[#085587]/30 hover:border-[#085587] hover:bg-sky-50/50 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
             >
-              Sign In as Farhan Rahman (Demo Candidate)
+              {t('Sign In as Farhan Rahman (Demo Candidate)')}
               <ArrowRight className="w-3 h-3" />
             </button>
           </div>
@@ -147,21 +153,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="w-full border-t border-slate-200"></div>
             </div>
             <div className="relative flex justify-center text-xs">
-              <span className="px-2 bg-white text-slate-500 font-medium">Or enter credentials</span>
+              <span className="px-2 bg-white text-slate-500 font-medium">{t('Or enter credentials')}</span>
             </div>
           </div>
 
           {error && (
             <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <span>{error}</span>
+              <span>{t(error)}</span>
             </div>
           )}
 
           {successMsg && (
             <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <span>{successMsg}</span>
+              <span>{t(successMsg)}</span>
             </div>
           )}
 
@@ -169,7 +175,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'signup' && (
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Full Legal Name
+                  {t('Full Legal Name')}
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -178,7 +184,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    placeholder="e.g. Farhan Rahman"
+                    placeholder={t('e.g. Farhan Rahman')}
                     className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#085587] focus:border-transparent"
                   />
                 </div>
@@ -187,7 +193,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Email Address
+                {t('Email Address')}
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -196,7 +202,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="candidate@example.com"
+                  placeholder={t('candidate@example.com')}
                   className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#085587] focus:border-transparent"
                 />
               </div>
@@ -205,14 +211,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode !== 'forgot' && (
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-700">Password</label>
+                  <label className="text-xs font-semibold text-slate-700">{t('Password')}</label>
                   {mode === 'signin' && (
                     <button
                       type="button"
                       onClick={() => setMode('forgot')}
                       className="text-[11px] text-[#085587] hover:underline"
                     >
-                      Forgot password?
+                      {t('Forgot password?')}
                     </button>
                   )}
                 </div>
@@ -236,13 +242,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               className="w-full py-2.5 px-4 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors shadow-sm disabled:opacity-50 mt-2"
             >
               {loading ? (
-                'Processing...'
+                t('Processing...')
               ) : mode === 'signin' ? (
-                'Sign In to Synesis Careers'
+                t('Sign In to Synesis Careers')
               ) : mode === 'signup' ? (
-                'Create Candidate Account'
+                t('Create Candidate Account')
               ) : (
-                'Send Recovery Email'
+                t('Send Recovery Email')
               )}
             </button>
           </form>
@@ -251,39 +257,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="mt-5 pt-4 border-t border-slate-100 text-center text-xs text-slate-600">
             {mode === 'signin' && (
               <p>
-                Don't have an account yet?{' '}
+                {t("Don't have an account yet?")}{' '}
                 <button
                   type="button"
                   onClick={() => setMode('signup')}
                   className="font-semibold text-[#085587] hover:underline ml-1"
                 >
-                  Create one now
+                  {t('Create one now')}
                 </button>
               </p>
             )}
 
             {mode === 'signup' && (
               <p>
-                Already have an account?{' '}
+                {t('Already have an account?')}{' '}
                 <button
                   type="button"
                   onClick={() => setMode('signin')}
                   className="font-semibold text-[#085587] hover:underline ml-1"
                 >
-                  Sign in
+                  {t('Sign in')}
                 </button>
               </p>
             )}
 
             {mode === 'forgot' && (
               <p>
-                Remembered your credentials?{' '}
+                {t('Remembered your credentials?')}{' '}
                 <button
                   type="button"
                   onClick={() => setMode('signin')}
                   className="font-semibold text-[#085587] hover:underline ml-1"
                 >
-                  Back to Sign In
+                  {t('Back to Sign In')}
                 </button>
               </p>
             )}

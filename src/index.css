@@ -17,5 +17,9 @@
 }
 
 :root {
-  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: 'Poppins', 'Noto Sans Bengali', 'Noto Sans', 'Nirmala UI', 'Vrinda', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+:lang(bn) {
+  font-family: 'Noto Sans Bengali', 'Noto Sans', 'Nirmala UI', 'Vrinda', 'Poppins', sans-serif;
 }

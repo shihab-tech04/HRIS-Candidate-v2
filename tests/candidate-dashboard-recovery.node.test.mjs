@@ -19,5 +19,6 @@ test('candidate dashboard authorization failures end loading with accessible ret
 test('candidate account navigation keeps its accessible controls within a mobile header', () => {
   assert.match(navbar, /gap-2 sm:gap-8/);
   assert.match(navbar, /hidden sm:inline text-xs font-medium/);
-  assert.match(navbar, /aria-label=\{`Open account menu for/);
+  assert.match(navbar, /aria-label=\{t\('Open account menu for \{name\}'/);
+  assert.match(navbar, /<CandidateLocaleSwitch className="px-2 sm:px-3"\s*\/>/);
 });
