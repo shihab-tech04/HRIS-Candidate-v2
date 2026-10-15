@@ -892,7 +892,7 @@ try {
   await candidateApplicationRow.getByLabel('Assessment instructions — Candidate A Application Name').fill(assessmentArguments.p_instructions);
   await candidateApplicationRow.getByLabel('Due date — Candidate A Application Name').fill(assessmentArguments.p_deadline_date);
   await candidateApplicationRow.getByRole('button', { name: 'Assign to candidate' }).click();
-  try { await candidateApplicationRow.getByRole('status').filter({ hasText: 'Assessment assigned to Candidate A Application Name.' }).waitFor({ timeout: 20000 }); }
+  try { await candidateApplicationRow.getByText('Assessment assigned. The candidate can submit it from Tasks & qualifications.', { exact: true }).waitFor({ timeout: 20000 }); }
   catch { throw new Error(`Assessment assignment did not complete. Row=${(await candidateApplicationRow.innerText()).slice(0, 1500)} response=${JSON.stringify(assessmentAssignmentResponses)} diagnostics=${mainDiagnostics.join(';') || browserErrors.join(';') || 'none'}`); }
   const assignedAssessment = await admin.from('candidate_assessments').select('id,application_id,title,assessment_type,instructions,deadline_date,status,created_by').eq('application_id', application.id).single();
   assert(!assignedAssessment.error && assignedAssessment.data.title === assessmentArguments.p_title
