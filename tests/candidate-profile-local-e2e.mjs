@@ -98,6 +98,7 @@ try {
     await page.getByRole('heading', { name: 'Unable to load your workspace' }).waitFor({ timeout: 15000 });
     assert(await page.getByRole('alert').innerText().then(t => t.includes('Please retry.')), `${viewport.label}: authorization failure was not rendered accessibly.`);
     const retryAction = page.getByRole('button', { name: 'Retry', exact: true });
+    await retryAction.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
     const retryDiagnostics = await page.locator('button').evaluateAll(buttons => buttons
       .filter(button => button.textContent?.trim() === 'Retry')
       .map(button => {
