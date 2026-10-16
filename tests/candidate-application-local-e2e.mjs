@@ -1458,7 +1458,7 @@ try {
   assert(!(await interviewCompletedTimeline.innerText()).includes('Private completed-interview recruiter note.'),
     'Candidate interview-completion history exposed a recruiter-only note.');
   await page.getByRole('button', { name: 'Switch to Bengali' }).click();
-  await page.getByText('সাক্ষাৎকার মূল্যায়নাধীন', { exact: true }).waitFor({ timeout: 20000 });
+  await interviewCompletedTimeline.getByText('সাক্ষাৎকার মূল্যায়নাধীন', { exact: true }).waitFor({ timeout: 20000 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'আমার আবেদন' }).waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: /Interview Completion Status Role/ })
