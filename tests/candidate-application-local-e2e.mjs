@@ -1433,9 +1433,9 @@ try {
   assert(duplicateOffer.error?.code === '23505', `A second open offer was not denied: ${JSON.stringify(duplicateOffer.error)}`);
 
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto(`http://127.0.0.1:${webPort}/?view=applications`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${webPort}/?view=applications&application=${application.id}`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
-  const mobileHistory = page.getByRole('region', { name: 'Application history' });
+  const mobileHistory = page.locator(`#application-history-${application.id}`);
   await page.getByRole('button', { name: 'Switch to Bengali' }).click();
   await page.getByRole('region', { name: 'আবেদনের ইতিহাস' }).getByText('আবেদন জমা হয়েছে।', { exact: true }).waitFor({ timeout: 20000 });
   assert(await page.locator('html').getAttribute('lang') === 'bn', 'Bengali selection did not update the document language.');
@@ -1453,7 +1453,7 @@ try {
   await interviewCompletedCard.waitFor({ state: 'visible', timeout: 20000 });
   await interviewCompletedCard.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
   await interviewCompletedCard.click();
-  const interviewCompletedTimeline = page.getByRole('region', { name: 'Application history' });
+  const interviewCompletedTimeline = page.locator(`#application-history-${interviewCompletedApplicationId}`);
   await interviewCompletedTimeline.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
   assert(!(await interviewCompletedTimeline.innerText()).includes('Private completed-interview recruiter note.'),
     'Candidate interview-completion history exposed a recruiter-only note.');
@@ -1470,7 +1470,7 @@ try {
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile application history overflows the viewport.');
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.reload({ waitUntil: 'domcontentloaded' });
-  const desktopHistory = page.getByRole('region', { name: 'Application history' });
+  const desktopHistory = page.locator(`#application-history-${application.id}`);
   await desktopHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
   await desktopHistory.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
   await desktopHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });
