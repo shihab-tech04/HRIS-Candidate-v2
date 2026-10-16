@@ -1295,15 +1295,15 @@ try {
     && !Object.hasOwn(candidateReviewRecord, 'review_note') && !Object.hasOwn(candidateReviewRecord, 'reviewed_by'),
   'Candidate did not recover the review completion state or received private review metadata.');
   await candidateApplicationRow.locator('summary').filter({ hasText: 'Schedule interview' }).click();
-  assert(await mainManagerPage.locator('form').last().evaluate(form => !form.checkValidity()), 'Interview schedule form did not require its round, date, and duration.');
-  await mainManagerPage.getByLabel('Interview round').fill(interviewArguments.p_round_name);
-  await mainManagerPage.getByLabel('Interview format').selectOption(interviewArguments.p_format);
-  await mainManagerPage.getByLabel('Interview date and time (organization time zone)').fill(interviewArguments.p_scheduled_at);
-  await mainManagerPage.getByLabel('Interview duration in minutes').fill(String(interviewArguments.p_duration_minutes));
-  await mainManagerPage.getByLabel('Secure meeting link').fill(interviewArguments.p_location_or_link);
-  await mainManagerPage.getByLabel('Panel members').fill(interviewArguments.p_panel_members.join(', '));
-  await mainManagerPage.getByLabel('Candidate instructions').fill(interviewArguments.p_instructions);
-  await mainManagerPage.getByRole('button', { name: 'Send interview invitation' }).click();
+  assert(await candidateApplicationRow.locator('form').last().evaluate(form => !form.checkValidity()), 'Interview schedule form did not require its round, date, and duration.');
+  await candidateApplicationRow.getByLabel('Interview round').fill(interviewArguments.p_round_name);
+  await candidateApplicationRow.getByLabel('Interview format').selectOption(interviewArguments.p_format);
+  await candidateApplicationRow.getByLabel('Interview date and time (organization time zone)').fill(interviewArguments.p_scheduled_at);
+  await candidateApplicationRow.getByLabel('Interview duration in minutes').fill(String(interviewArguments.p_duration_minutes));
+  await candidateApplicationRow.getByLabel('Secure meeting link').fill(interviewArguments.p_location_or_link);
+  await candidateApplicationRow.getByLabel('Panel members').fill(interviewArguments.p_panel_members.join(', '));
+  await candidateApplicationRow.getByLabel('Candidate instructions').fill(interviewArguments.p_instructions);
+  await candidateApplicationRow.getByRole('button', { name: 'Send interview invitation' }).click();
   try { await mainManagerPage.getByRole('status').filter({ hasText: 'Interview invitation scheduled.' }).waitFor({ timeout: 20000 }); }
   catch { throw new Error(`Interview scheduling failed. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2200)} diagnostics=${mainDiagnostics.join(';') || 'none'}`); }
   const scheduledInterview = await admin.from('interviews').select('id,status,interview_type,scheduled_at,duration_minutes,panel_members,location_or_link,timezone').eq('application_id', application.id).eq('status', 'scheduled').single();
@@ -1380,16 +1380,18 @@ try {
   await mainManagerPage.getByRole('heading', { name: 'Interview responses' }).waitFor({ timeout: 20000 });
   await mainManagerPage.getByText('Reschedule requested', { exact: true }).waitFor();
   await mainManagerPage.getByText('Friday 10:00–12:00 Asia/Dhaka', { exact: false }).waitFor();
-  await mainManagerPage.locator('section[aria-labelledby="interview-responses-heading"]').getByText(/45 minutes · Asia\/Dhaka/).waitFor();
-  await mainManagerPage.getByText('Offer another time', { exact: true }).click();
-  await mainManagerPage.getByLabel('Interview round').fill('Technical Systems Interview');
-  await mainManagerPage.getByLabel('Interview format').selectOption('Video Call');
-  await mainManagerPage.getByLabel('Interview date and time (organization time zone)').fill(organizationDateTime(5));
-  await mainManagerPage.getByLabel('Interview duration in minutes').fill('45');
-  await mainManagerPage.getByLabel('Secure meeting link').fill('https://meet.example.test/hris-candidate-rescheduled');
-  await mainManagerPage.getByLabel('Panel members').fill('Panel Member One, Panel Member Two');
-  await mainManagerPage.getByLabel('Candidate instructions').fill('Revised invitation.');
-  await mainManagerPage.getByRole('button', { name: 'Send interview invitation' }).click();
+  const managerInterviewResponse = mainManagerPage.locator('section[aria-labelledby="interview-responses-heading"]')
+    .locator(`[data-interview-application-id="${application.id}"]`);
+  await managerInterviewResponse.getByText(/45 minutes · Asia\/Dhaka/).waitFor();
+  await managerInterviewResponse.getByText('Offer another time', { exact: true }).click();
+  await managerInterviewResponse.getByLabel('Interview round').fill('Technical Systems Interview');
+  await managerInterviewResponse.getByLabel('Interview format').selectOption('Video Call');
+  await managerInterviewResponse.getByLabel('Interview date and time (organization time zone)').fill(organizationDateTime(5));
+  await managerInterviewResponse.getByLabel('Interview duration in minutes').fill('45');
+  await managerInterviewResponse.getByLabel('Secure meeting link').fill('https://meet.example.test/hris-candidate-rescheduled');
+  await managerInterviewResponse.getByLabel('Panel members').fill('Panel Member One, Panel Member Two');
+  await managerInterviewResponse.getByLabel('Candidate instructions').fill('Revised invitation.');
+  await managerInterviewResponse.getByRole('button', { name: 'Send interview invitation' }).click();
   await mainManagerPage.getByText('Interview invitation scheduled.', { exact: false }).waitFor({ timeout: 20000 });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.reload({ waitUntil: 'domcontentloaded' });
