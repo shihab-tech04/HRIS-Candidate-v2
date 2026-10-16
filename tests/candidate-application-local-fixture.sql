@@ -19,6 +19,21 @@ VALUES
   ('33333333-3333-4333-8333-333333333333', 'c1-tenant-b', 'C1-B', true, 'Tenant B', 'Asia/Dhaka')
 ON CONFLICT (slug) DO UPDATE
 SET code=EXCLUDED.code, name=EXCLUDED.name, timezone=EXCLUDED.timezone, is_active=EXCLUDED.is_active;
+
+-- Match the existing production audit contract for the activation transaction.
+CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id uuid,
+  action text NOT NULL,
+  target_type text NOT NULL,
+  target_id text,
+  details jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.admin_audit_logs FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.admin_audit_logs TO service_role;
+
 ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ON public.tenants TO authenticated;
 
