@@ -98,7 +98,30 @@ try {
     await page.getByRole('heading', { name: 'Unable to load your workspace' }).waitFor({ timeout: 15000 });
     assert(await page.getByRole('alert').innerText().then(t => t.includes('Please retry.')), `${viewport.label}: authorization failure was not rendered accessibly.`);
     const retryAction = page.getByRole('button', { name: 'Retry', exact: true });
-    assert(await retryAction.isVisible(), `${viewport.label}: retry action is missing. buttons=${JSON.stringify(await page.getByRole('button').allTextContents())} alert=${JSON.stringify(await page.getByRole('alert').innerText())}`);
+    const retryDiagnostics = await page.locator('button').evaluateAll(buttons => buttons
+      .filter(button => button.textContent?.trim() === 'Retry')
+      .map(button => {
+        const rect = button.getBoundingClientRect();
+        const ancestors = [];
+        for (let node = button; node && ancestors.length < 5; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          ancestors.push({
+            tag: node.tagName,
+            className: typeof node.className === 'string' ? node.className : '',
+            display: style.display,
+            visibility: style.visibility,
+            opacity: style.opacity,
+            ariaHidden: node.getAttribute('aria-hidden'),
+          });
+        }
+        return {
+          className: button.className,
+          disabled: button.disabled,
+          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          ancestors,
+        };
+      }));
+    assert(await retryAction.isVisible(), `${viewport.label}: retry action is missing. retry=${JSON.stringify(retryDiagnostics)} buttons=${JSON.stringify(await page.getByRole('button').allTextContents())} alert=${JSON.stringify(await page.getByRole('alert').innerText())}`);
     await retryAction.click();
     await page.getByRole('heading', { name: 'Unable to load your workspace' }).waitFor({ timeout: 10000 });
     assert(await page.getByRole('button', { name: 'Retry', exact: true }).isVisible(), `${viewport.label}: retry did not recover to an actionable error state.`);
