@@ -1503,7 +1503,21 @@ try {
   'Blocked activation changed the accepted-offer application or wrote a hired event.');
 
   await activationCard.getByRole('textbox', { name: 'Confirm joining date', exact: true }).fill(tenantToday);
+  const authorizedActivationResponsePromise = employeeManagerPage.waitForResponse(response =>
+    response.url().includes('hris_activate_candidate_employee') && response.request().method() === 'POST');
   await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).click();
+  const authorizedActivationResponse = await authorizedActivationResponsePromise;
+  const authorizedActivationBody = await authorizedActivationResponse.json().catch(() => null);
+  if (!authorizedActivationResponse.ok() || authorizedActivationBody?.success !== true) {
+    await activationCard.getByRole('alert').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    const activationAlert = await activationCard.getByRole('alert').innerText().catch(() => 'No activation alert was rendered.');
+    throw new Error(`Authorized activation RPC failed: ${JSON.stringify({
+      status: authorizedActivationResponse.status(),
+      code: authorizedActivationBody?.code ?? null,
+      message: authorizedActivationBody?.message ?? null,
+      alert: activationAlert,
+    })}`);
+  }
   await activationCard.getByText('Employee activated. The candidate keeps the same sign-in identity.', { exact: true }).waitFor({ timeout: 20000 });
   await activationCard.getByText('No submitted preboarding packets are waiting for HR.', { exact: true }).waitFor({ timeout: 20000 });
   assert(!(await employeeManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop activation journey overflows the viewport.');
