@@ -423,8 +423,11 @@ export async function applyToJob(
   }
 
   // Check duplicate application
-  const existingApps = getLocal<JobApplication[]>('applications', []);
-  const alreadyApplied = existingApps.some(
+  // Local application history is authoritative only in the isolated demo. A
+  // production browser can contain stale data from an earlier preview, so let
+  // HRIS enforce its configured duplicate rule against persisted applications.
+  const existingApps = DEMO_MODE ? getLocal<JobApplication[]>('applications', []) : [];
+  const alreadyApplied = DEMO_MODE && existingApps.some(
     (a) => a.user_id === payload.user_id && a.job_id === jobId && a.status !== 'withdrawn'
   );
   if (alreadyApplied) {
