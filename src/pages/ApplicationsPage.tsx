@@ -52,6 +52,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
       under_review: 'Under Review',
       screening: 'Screening in Progress',
       interview_scheduled: 'Interview Scheduled',
+      interview_completed: 'Interview Under Evaluation',
       assessment_pending: 'Assessment Pending',
       offer_extended: 'Offer Extended',
       offer_accepted: 'Offer Accepted',

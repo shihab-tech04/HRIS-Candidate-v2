@@ -138,7 +138,7 @@ export function adaptLiveOnboardingHandoff(raw: unknown): OnboardingHandoff {
 function applicationStatus(row: Row): ApplicationStatus {
   const raw = asText(row.status || row.stage).toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
   const valid: ApplicationStatus[] = [
-    'draft','submitted','under_review','screening','interview_scheduled','assessment_pending',
+    'draft','submitted','under_review','screening','interview_scheduled','interview_completed','assessment_pending',
     'offer_extended','offer_accepted','offer_declined','withdrawn','rejected','hired'
   ];
   if (valid.includes(raw as ApplicationStatus)) return raw as ApplicationStatus;
@@ -156,6 +156,7 @@ function applicationStatus(row: Row): ApplicationStatus {
 const visibleApplicationStatus: Record<ApplicationStatus, string> = {
   draft: 'Draft', submitted: 'Application Submitted', under_review: 'Under Review',
   screening: 'Screening in Progress', interview_scheduled: 'Interview Scheduled',
+  interview_completed: 'Interview Under Evaluation',
   assessment_pending: 'Assessment Pending', offer_extended: 'Offer Extended',
   offer_accepted: 'Offer Accepted', offer_declined: 'Offer Declined',
   withdrawn: 'Withdrawn', rejected: 'Not Selected', hired: 'Hired'

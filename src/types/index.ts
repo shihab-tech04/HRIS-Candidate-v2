@@ -115,6 +115,7 @@ export type ApplicationStatus =
   | 'under_review'
   | 'screening'
   | 'interview_scheduled'
+  | 'interview_completed'
   | 'assessment_pending'
   | 'offer_extended'
   | 'offer_accepted'

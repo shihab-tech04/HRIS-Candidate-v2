@@ -53,12 +53,14 @@ const tenantA = '22222222-2222-4222-8222-222222222222';
 const tenantB = '33333333-3333-4333-8333-333333333333';
 const tenantToday = psql("SELECT (now() AT TIME ZONE 'Asia/Dhaka')::date::text").trim();
 const jobId = randomUUID();
+const interviewCompletedJobId = randomUUID();
 const otherTenantJobId = randomUUID();
 const withdrawalJobId = randomUUID();
 const rejectedJobId = randomUUID();
 const foreignApplicationId = randomUUID();
 const withdrawalApplicationId = randomUUID();
 const rejectedApplicationId = randomUUID();
+const interviewCompletedApplicationId = randomUUID();
 const foreignOfferId = randomUUID();
 const password = `candidate-apply-${randomUUID()}`;
 const users = [
@@ -134,6 +136,7 @@ async function cleanupStaleTestJobs() {
     || (row.title === 'Other Tenant Role' && /^C1-X-[0-9a-f]{8}$/i.test(row.reference_number || ''))
     || (row.title === 'Candidate Withdrawal Role' && /^C1-W-[0-9a-f]{8}$/i.test(row.reference_number || ''))
     || (row.title === 'Candidate Rejected Role' && /^C1-R-[0-9a-f]{8}$/i.test(row.reference_number || ''))
+    || (row.title === 'Interview Completion Status Role' && /^C1-I-[0-9a-f]{8}$/i.test(row.reference_number || ''))
   ).map(row => row.id);
   if (ids.length) {
     const applications = await admin.from('job_applications').select('id').in('job_id', ids);
@@ -180,6 +183,7 @@ const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261016170000_hris_candidate_employee_activation_policy.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013052128_hris_candidate_c1_revoke_direct_table_access.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013221500_hris_candidate_interview_journey.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261016081154_hris_candidate_interview_completion.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013170556_hris_candidate_assessment_journey.sql'),
   path.join(mainRoot, 'supabase/migrations/20261016190000_candidate_application_withdrawal.sql'),
 ];
@@ -218,7 +222,7 @@ try {
   await waitForApiTable('jobs');
   fixtureReady = true;
   await cleanupStaleTestJobs();
-  const idCollision = psql(`SELECT count(*) FROM public.jobs WHERE id IN (${sql(jobId)},${sql(otherTenantJobId)})`).trim();
+  const idCollision = psql(`SELECT count(*) FROM public.jobs WHERE id IN (${sql(jobId)},${sql(interviewCompletedJobId)},${sql(otherTenantJobId)})`).trim();
   if (idCollision !== '0') throw new Error('Refusing to overwrite a local test job.');
 
   const testJob = {
@@ -246,6 +250,16 @@ try {
     is_published: true, is_active: true, published_at: new Date().toISOString(),
   });
   if (publicJob.error) throw publicJob.error;
+
+  const interviewCompletedJob = await admin.from('jobs').insert({
+    id: interviewCompletedJobId, tenant_id: tenantA,
+    reference_number: `C1-I-${interviewCompletedJobId.slice(0, 8)}`,
+    title: 'Interview Completion Status Role', department_name: 'Engineering',
+    workplace_type: 'Hybrid', employment_type: 'Full-time',
+    status: 'published', is_published: true, is_active: true,
+    required_documents: [], screening_questions: [],
+  });
+  if (interviewCompletedJob.error) throw interviewCompletedJob.error;
 
   const otherJob = await admin.from('jobs').insert({
     id: otherTenantJobId, tenant_id: tenantB, reference_number: `C1-X-${otherTenantJobId.slice(0, 8)}`,
@@ -897,6 +911,30 @@ try {
     && submittedApplication.stage_history[0].actor_type === 'candidate'
     && !Object.hasOwn(submittedApplication.stage_history[0], 'actor_user_id'),
   `Initial candidate submission history did not persist as a candidate-safe event: ${JSON.stringify(submittedContext.error || submittedApplication?.stage_history)}`);
+
+  const interviewCompletedApplicationInsert = await admin.from('job_applications').insert({
+    id: interviewCompletedApplicationId, tenant_id: tenantA, job_id: interviewCompletedJobId,
+    candidate_user_id: users[0].id, full_name: users[0].name, email: users[0].email,
+    stage: 'interview_completed', application_data: {},
+    applied_at: new Date(Date.now() + 10_000).toISOString(), updated_at: new Date().toISOString(),
+  });
+  if (interviewCompletedApplicationInsert.error) throw interviewCompletedApplicationInsert.error;
+  const interviewCompletedHistoryInsert = await admin.from('candidate_application_stage_history').insert([
+    { id: randomUUID(), application_id: interviewCompletedApplicationId, stage: 'applied', note: 'Application submitted.', actor_type: 'candidate', actor_user_id: users[0].id },
+    { id: randomUUID(), application_id: interviewCompletedApplicationId, stage: 'interview_completed', note: 'Private completed-interview recruiter note.', actor_type: 'recruitment', actor_user_id: staff[0].id },
+  ]);
+  if (interviewCompletedHistoryInsert.error) throw interviewCompletedHistoryInsert.error;
+  const interviewCompletedContext = await users[0].client.rpc('candidate_get_recruitment_context');
+  const safeInterviewCompletedApplication = interviewCompletedContext.data?.applications?.find(row => row.id === interviewCompletedApplicationId);
+  const safeInterviewCompletedEvent = safeInterviewCompletedApplication?.stage_history?.find(row => row.stage === 'interview_completed');
+  const directInterviewCompletedHistory = await users[0].client.from('candidate_application_stage_history')
+    .select('note,actor_user_id').eq('application_id', interviewCompletedApplicationId);
+  assert(!interviewCompletedContext.error && safeInterviewCompletedApplication?.stage === 'interview_completed'
+    && safeInterviewCompletedEvent && !Object.hasOwn(safeInterviewCompletedEvent, 'actor_user_id')
+    && !Object.hasOwn(safeInterviewCompletedEvent, 'note')
+    && !JSON.stringify(safeInterviewCompletedApplication).includes('Private completed-interview recruiter note.')
+    && directInterviewCompletedHistory.error?.code === '42501',
+  `Completed-interview history was not candidate-safe: ${JSON.stringify(interviewCompletedContext.error || safeInterviewCompletedApplication || directInterviewCompletedHistory.error)}`);
   const applicationStageArgs = { p_tenant_id: tenantA, p_application_id: application.id };
   const viewOnlyStage = await staff[1].client.rpc('hris_update_candidate_application_stage', { ...applicationStageArgs, p_stage: 'under_review' });
   const crossTenantStage = await staff[2].client.rpc('hris_update_candidate_application_stage', { ...applicationStageArgs, p_stage: 'under_review' });
@@ -1409,6 +1447,21 @@ try {
   await mobileHistory.getByText('Screening in Progress', { exact: true }).first().waitFor({ timeout: 20000 });
   await mobileHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
   await mobileHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });
+  const interviewCompletedCard = page.getByRole('button', { name: /Interview Completion Status Role/ });
+  await interviewCompletedCard.waitFor({ state: 'visible', timeout: 20000 });
+  await interviewCompletedCard.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
+  await interviewCompletedCard.click();
+  const interviewCompletedTimeline = page.getByRole('region', { name: 'Application history' });
+  await interviewCompletedTimeline.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
+  assert(!(await interviewCompletedTimeline.innerText()).includes('Private completed-interview recruiter note.'),
+    'Candidate interview-completion history exposed a recruiter-only note.');
+  await page.getByRole('button', { name: 'Switch to Bengali' }).click();
+  await page.getByText('সাক্ষাৎকার মূল্যায়নাধীন', { exact: true }).waitFor({ timeout: 20000 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'আমার আবেদন' }).waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: /Interview Completion Status Role/ })
+    .getByText('সাক্ষাৎকার মূল্যায়নাধীন', { exact: true }).waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'ইংরেজিতে পরিবর্তন করুন' }).click();
   const persistedTimeline = await page.locator('body').innerText();
   assert(!persistedTimeline.includes('private recruiter') && !persistedTimeline.includes('panel note'),
     'Candidate application history exposed internal recruiter notes.');
@@ -1417,6 +1470,7 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   const desktopHistory = page.getByRole('region', { name: 'Application history' });
   await desktopHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
+  await desktopHistory.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
   await desktopHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop application history overflows the viewport.');
 
@@ -1783,7 +1837,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history withdrawal=owner+tenant+rejected-stage+offer-stage-preserved+allowlisted-reason+idempotent+audited-history+retry+refresh+ENBN assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history+interview_completed=visible+candidate-safe withdrawal=owner+tenant+rejected-stage+offer-stage-preserved+allowlisted-reason+idempotent+audited-history+retry+refresh+ENBN assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } catch (cause) {
   console.error('CANDIDATE_APPLICATION_LOCAL_E2E ERROR:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
   throw cause;

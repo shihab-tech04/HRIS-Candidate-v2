@@ -77,6 +77,27 @@ test('live application DTO preserves candidate-visible persisted history and dro
   assert.equal(JSON.stringify(app).includes('recruiter-1'), false);
 });
 
+test('completed interview stage keeps the approved Candidate label in English and Bengali', () => {
+  const app = adaptLiveApplication({
+    id: 'application-interview-completed', candidate_user_id: 'candidate-1', job_id: 'job-1',
+    stage: 'interview_completed', applied_at: '2026-10-16T08:00:00.000Z', application_data: {},
+  });
+  assert.equal(app.status, 'interview_completed');
+  assert.equal(app.candidate_visible_status, 'Interview Under Evaluation');
+  assert.equal(translateCandidateText('Interview Under Evaluation', 'bn'), 'সাক্ষাৎকার মূল্যায়নাধীন');
+  const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
+  assert.match(applicationsPage, /interview_completed: 'Interview Under Evaluation'/);
+});
+
+test('local Auth/Postgres browser acceptance verifies completed interview visibility and private-history denial', () => {
+  assert.match(localJourney, /20261016081154_hris_candidate_interview_completion\.sql/);
+  assert.match(localJourney, /Interview Under Evaluation/);
+  assert.match(localJourney, /সাক্ষাৎকার মূল্যায়নাধীন/);
+  assert.match(localJourney, /Private completed-interview recruiter note\./);
+  assert.match(localJourney, /directInterviewCompletedHistory\.error\?\.code === '42501'/);
+  assert.match(localJourney, /interview_completed=visible\+candidate-safe/);
+});
+
 test('application page renders stored stage history rather than inferred screening milestones', () => {
   const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
   assert.match(applicationsPage, /app\.stage_history/);
@@ -140,6 +161,10 @@ test('fresh local application journey creates its schema before cleaning stale t
     'No job-table query runs before the disposable schema is initialized.');
   assert.match(localJourney, /20261014150000_hris_candidate_initial_application_history\.sql/,
     'The local Auth/Postgres application journey applies the persisted-history source fix.');
+  assert.match(localJourney, /20261016081154_hris_candidate_interview_completion\.sql/,
+    'The local Candidate acceptance applies the interview-completion stage contract.');
+  assert.ok(localJourney.includes('Interview Under Evaluation') && localJourney.includes('সাক্ষাৎকার মূল্যায়নাধীন'),
+    'The local browser journey checks the English and Bengali completed-interview status.');
 });
 
 test('local preboarding tenant policy is created only after its permission helper exists', () => {

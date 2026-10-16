@@ -91,6 +91,7 @@ export const CANDIDATE_BENGALI: Readonly<Record<string, string>> = {
   'Under Review': 'পর্যালোচনাধীন',
   'Screening in Progress': 'প্রাথমিক যাচাই চলছে',
   'Interview Scheduled': 'সাক্ষাৎকার নির্ধারিত হয়েছে',
+  'Interview Under Evaluation': 'সাক্ষাৎকার মূল্যায়নাধীন',
   'Assessment Pending': 'মূল্যায়ন বাকি',
   'Offer Extended': 'চাকরির প্রস্তাব পাঠানো হয়েছে',
   'Offer Accepted': 'চাকরির প্রস্তাব গ্রহণ করা হয়েছে',
