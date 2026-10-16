@@ -51,6 +51,9 @@ export const PreboardingPage: React.FC<PreboardingPageProps> = ({ onNavigate }) 
 
   const errorCopy = (cause: unknown, fallback: string) => {
     const message = cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : '';
+    if (message === 'Complete each required field before saving this step.') {
+      return { key: 'Complete each required field before saving this step.' };
+    }
     const requiredFields = message.match(/^Complete each required field:\s*(.+)$/i)?.[1];
     return requiredFields ? { key: 'Complete each required field: {fields}', values: { fields: requiredFields } } : { key: fallback };
   };

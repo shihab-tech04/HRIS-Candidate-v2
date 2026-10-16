@@ -475,6 +475,7 @@ export const CANDIDATE_BENGALI: Readonly<Record<string, string>> = {
   'Unable to load preboarding information. Please retry.': 'প্রাক-যোগদানের তথ্য লোড করা যায়নি। আবার চেষ্টা করুন।',
   'Unable to save preboarding information. Please retry.': 'প্রাক-যোগদানের তথ্য সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন।',
   'Preboarding changes were not saved. Please retry.': 'প্রাক-যোগদানের পরিবর্তন সংরক্ষণ হয়নি। আবার চেষ্টা করুন।',
+  'Complete each required field before saving this step.': 'সংরক্ষণ করার আগে প্রতিটি আবশ্যিক ঘর পূরণ করুন।',
   'Complete each required field: {fields}': 'প্রতিটি আবশ্যিক ঘর পূরণ করুন: {fields}',
   'Post-Offer Transition': 'প্রস্তাব-পরবর্তী প্রক্রিয়া',
   'Preboarding is not available yet': 'প্রাক-যোগদান এখনো উপলভ্য নয়',
