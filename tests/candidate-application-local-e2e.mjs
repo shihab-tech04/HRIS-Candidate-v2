@@ -51,6 +51,7 @@ const admin = createClient(status.API_URL, status.SERVICE_ROLE_KEY, { auth: { pe
 const anon = createClient(status.API_URL, status.ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const tenantA = '22222222-2222-4222-8222-222222222222';
 const tenantB = '33333333-3333-4333-8333-333333333333';
+const tenantToday = psql("SELECT (now() AT TIME ZONE 'Asia/Dhaka')::date::text").trim();
 const jobId = randomUUID();
 const otherTenantJobId = randomUUID();
 const foreignApplicationId = randomUUID();
@@ -170,6 +171,7 @@ const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013190200_hris_candidate_preboarding_workflow.sql'),
   path.join(mainRoot, 'supabase/migrations/20261014070848_hris_candidate_employee_activation.sql'),
   path.join(mainRoot, 'supabase/migrations/20261014100459_gate_candidate_employee_activation_until_policy_approval.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261016170000_hris_candidate_employee_activation_policy.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013052128_hris_candidate_c1_revoke_direct_table_access.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013221500_hris_candidate_interview_journey.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013170556_hris_candidate_assessment_journey.sql'),
@@ -281,8 +283,8 @@ try {
     if (permissions.error) throw permissions.error;
     const membership = await admin.from('tenant_memberships').insert({
       user_id: person.id, tenant_id: person.tenantId,
-      role: person.permission === 'employees.manage' ? 'Employee Manager'
-        : person.permission === 'recruitment.manage' ? 'Recruitment Manager' : 'Recruitment Viewer', status: 'active',
+      role: person.permission === 'employees.manage' ? 'qa_employee_manager'
+        : person.permission === 'recruitment.manage' ? 'qa_recruitment_manager' : 'qa_recruitment_viewer', status: 'active',
     });
     if (membership.error) throw membership.error;
     const signed = createClient(status.API_URL, status.ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -292,6 +294,11 @@ try {
     person.client = signed;
     signedClients.push(signed);
   }
+
+  const preservedForeignMembership = await admin.from('tenant_memberships').insert({
+    user_id: users[0].id, tenant_id: tenantB, role: 'qa_recruitment_viewer', status: 'inactive',
+  });
+  if (preservedForeignMembership.error) throw preservedForeignMembership.error;
 
   // C1 security boundary: candidates and authorized staff use filtered RPCs;
   // none of these principals may bypass them through direct Data API access.
@@ -1379,15 +1386,31 @@ try {
     p_tenant_id: tenantA, p_application_id: application.id,
     p_employee_number: `C1-${application.id.slice(0, 8).toUpperCase()}`,
     p_joining_date: issueArguments.p_proposed_joining_date,
+    p_details_verified: true,
   };
   for (const [label, client] of [
     ['recruitment manager', staff[0].client], ['recruitment viewer', staff[1].client],
     ['other tenant manager', staff[2].client], ['candidate', users[0].client], ['anonymous caller', anon],
-    ['employee manager', staff[3].client],
   ]) {
     const denied = await client.rpc('hris_activate_candidate_employee', activationArguments);
     assert(denied.error?.code === '42501', `${label} was allowed to activate an employee: ${JSON.stringify(denied.error)}`);
   }
+  const legacyActivation = await staff[3].client.rpc('hris_activate_candidate_employee', {
+    p_tenant_id: tenantA, p_application_id: application.id,
+    p_employee_number: activationArguments.p_employee_number, p_joining_date: tenantToday,
+  });
+  assert(legacyActivation.error?.code === '42501',
+    `The revoked pre-policy activation RPC remained callable: ${JSON.stringify(legacyActivation.error)}`);
+  const unverifiedDetails = await staff[3].client.rpc('hris_activate_candidate_employee', {
+    ...activationArguments, p_joining_date: tenantToday, p_details_verified: false,
+  });
+  assert(unverifiedDetails.error?.code === '22023', 'HR activated the employee without attesting that submitted details were verified.');
+  const missingEmployeeRole = await staff[3].client.rpc('hris_activate_candidate_employee', {
+    ...activationArguments, p_joining_date: tenantToday,
+  });
+  assert(missingEmployeeRole.error?.code === '55000'
+    && missingEmployeeRole.error.message.includes('Employee role is not configured'),
+  `Activation did not fail closed when the Employee role was missing: ${JSON.stringify(missingEmployeeRole.error)}`);
   const employeeManagerForeignQueue = await staff[3].client.rpc('hris_get_candidate_preboarding_queue', { p_tenant_id: tenantB });
   assert(employeeManagerForeignQueue.error?.code === '42501', 'Employee manager read another tenant’s candidate queue.');
   const employeeManagerQueue = await staff[3].client.rpc('hris_get_candidate_preboarding_queue', { p_tenant_id: tenantA });
@@ -1408,16 +1431,41 @@ try {
   await mainManagerPage.reload({ waitUntil: 'domcontentloaded' });
   await mainManagerPage.getByRole('heading', { name: 'Candidate pipeline' }).waitFor({ timeout: 20000 });
   await mainManagerPage.getByRole('heading', { name: 'Preboarding handoffs' }).waitFor({ timeout: 20000 });
-  await mainManagerPage.locator('section[aria-labelledby="preboarding-queue-heading"]').getByText(users[0].email, { exact: true }).waitFor();
+  const recruitmentQueueCard = mainManagerPage.locator('section[aria-labelledby="preboarding-queue-heading"]');
+  await recruitmentQueueCard.getByText(users[0].email, { exact: true }).waitFor();
+  assert(await recruitmentQueueCard.getByRole('button', { name: 'Activate employee', exact: true }).count() === 0,
+    'Recruitment-only access exposed employee activation controls.');
   assert(!(await mainManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile HR preboarding queue overflows the viewport.');
+
+  const employeeManagerMobileContext = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const employeeManagerMobilePage = await employeeManagerMobileContext.newPage();
+  employeeManagerMobilePage.on('pageerror', error => browserErrors.push(error.message));
+  await employeeManagerMobilePage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: staff[3].session,
+  });
+  await employeeManagerMobilePage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
+  await employeeManagerMobilePage.getByRole('button', { name: 'Open navigation menu' }).click();
+  await employeeManagerMobilePage.getByRole('complementary', { name: 'HRIS navigation' }).getByRole('button', { name: 'Onboarding', exact: true }).click();
+  const mobileActivationCard = employeeManagerMobilePage.locator('section[aria-labelledby="preboarding-queue-heading"]');
+  await mobileActivationCard.getByText(users[0].email, { exact: true }).waitFor({ timeout: 20000 });
+  assert(await mobileActivationCard.getByRole('button', { name: 'Activate employee', exact: true }).isVisible(),
+    'The employees.manage user did not receive mobile activation controls.');
+  await employeeManagerMobilePage.getByRole('button', { name: 'Switch language to Bengali' }).click();
+  await mobileActivationCard.getByLabel('কর্মচারী নম্বর').waitFor({ state: 'visible' });
+  assert(await mobileActivationCard.getByRole('button', { name: 'কর্মচারী সক্রিয় করুন', exact: true }).isVisible(),
+    'Employee activation controls did not render in Bengali on mobile.');
+  assert(!(await employeeManagerMobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'Mobile Bengali employee activation overflows the viewport.');
+  await employeeManagerMobilePage.getByRole('button', { name: 'Switch language to English' }).click();
+  await employeeManagerMobileContext.close();
 
   const employeeManagerContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const employeeManagerPage = await employeeManagerContext.newPage();
   employeeManagerPage.on('pageerror', error => browserErrors.push(error.message));
   const activationResponses = [];
-  employeeManagerPage.on('response', async response => {
+  employeeManagerPage.on('response', response => {
     if (response.url().includes('hris_activate_candidate_employee')) {
-      activationResponses.push({ status: response.status(), body: (await response.text()).slice(0, 1200) });
+      activationResponses.push({ status: response.status() });
     }
   });
   await employeeManagerPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
@@ -1429,26 +1477,77 @@ try {
   const activationCard = employeeManagerPage.locator('section[aria-labelledby="preboarding-queue-heading"]');
   await activationCard.getByText(users[0].email, { exact: true }).waitFor({ timeout: 20000 });
   const employeeNumber = activationArguments.p_employee_number;
-  assert(await activationCard.getByText('Employee conversion is on hold until employee status and role-mapping rules are approved.').isVisible(),
-    'The HR queue did not explain why employee conversion remains pending policy approval.');
-  assert(await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).count() === 0
-    && await activationCard.getByLabel('Employee number').count() === 0,
-  'The HR queue exposed controls for an unapproved employee conversion.');
-  assert(activationResponses.length === 0, `The UI attempted a gated activation RPC: ${JSON.stringify(activationResponses)}`);
+  await activationCard.getByLabel('Employee number').fill(employeeNumber);
+  await activationCard.getByLabel('Confirm joining date').fill(issueArguments.p_proposed_joining_date);
+  await activationCard.getByRole('checkbox', { name: 'I verified the submitted details and confirm the employee number and joining date.' }).check();
+  await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).click();
+  await activationCard.getByRole('alert').getByText('The active Employee role is not configured for this organization. Configure it before activation.').waitFor({ timeout: 10000 });
+  const configuredEmployeeRole = await admin.from('roles').insert({ id: 'qa_candidate_employee', name: 'Employee', active: true });
+  if (configuredEmployeeRole.error) throw configuredEmployeeRole.error;
+  await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).click();
+  await activationCard.getByRole('alert').getByText('Activation is available on or after the confirmed joining date.').waitFor({ timeout: 10000 });
   assert(!(await employeeManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop preboarding review overflows the viewport.');
 
   const unconvertedEmployees = await admin.from('employees').select('id').eq('user_id', users[0].id);
   assert(!unconvertedEmployees.error && unconvertedEmployees.data.length === 0,
-    `A denied conversion created an employee row: ${JSON.stringify(unconvertedEmployees.error || unconvertedEmployees.data)}`);
+    `A missing-role or future-date activation created an employee row: ${JSON.stringify(unconvertedEmployees.error || unconvertedEmployees.data)}`);
   const pendingHandoff = await admin.from('onboarding_handoffs').select('status,verified_at,verified_by,employee_id').eq('application_id', application.id).single();
   assert(!pendingHandoff.error && pendingHandoff.data.status === 'submitted_for_verification'
     && !pendingHandoff.data.verified_at && !pendingHandoff.data.verified_by && !pendingHandoff.data.employee_id,
-  `Gated conversion changed the submitted handoff: ${JSON.stringify(pendingHandoff.error || pendingHandoff.data)}`);
+  `A blocked activation changed the submitted handoff: ${JSON.stringify(pendingHandoff.error || pendingHandoff.data)}`);
   const pendingApplication = await admin.from('job_applications').select('stage').eq('id', application.id).single();
   const hiredHistory = await admin.from('candidate_application_stage_history').select('id').eq('application_id', application.id).eq('stage', 'hired');
   assert(!pendingApplication.error && pendingApplication.data.stage === 'offer_accepted'
     && !hiredHistory.error && hiredHistory.data.length === 0,
-  'Gated conversion changed the accepted-offer application or wrote a hired event.');
+  'Blocked activation changed the accepted-offer application or wrote a hired event.');
+
+  await activationCard.getByLabel('Confirm joining date').fill(tenantToday);
+  await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).click();
+  await activationCard.getByText('Employee activated. The candidate keeps the same sign-in identity.', { exact: true }).waitFor({ timeout: 20000 });
+  await activationCard.getByText('No submitted preboarding packets are waiting for HR.', { exact: true }).waitFor({ timeout: 20000 });
+  assert(!(await employeeManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop activation journey overflows the viewport.');
+  assert(activationResponses.length === 3 && activationResponses[0].status >= 400
+    && activationResponses[1].status >= 400 && activationResponses[2].status === 200,
+    `Expected role-block, future-date-block, and authorized activation requests: ${JSON.stringify(activationResponses)}`);
+
+  const activatedEmployee = await admin.from('employees').select('id,tenant_id,user_id,employee_number,joining_date,employment_status')
+    .eq('user_id', users[0].id).eq('tenant_id', tenantA).single();
+  assert(!activatedEmployee.error && activatedEmployee.data.user_id === users[0].id
+    && activatedEmployee.data.employee_number === employeeNumber && activatedEmployee.data.joining_date === tenantToday
+    && activatedEmployee.data.employment_status === 'active',
+  `Activation did not persist the expected active employee identity: ${JSON.stringify(activatedEmployee.error || activatedEmployee.data)}`);
+  const activatedMemberships = await admin.from('tenant_memberships').select('tenant_id,user_id,role,status').eq('user_id', users[0].id);
+  assert(!activatedMemberships.error && activatedMemberships.data.length === 2
+    && activatedMemberships.data.some(row => row.tenant_id === tenantA && row.role === 'qa_candidate_employee' && row.status === 'active')
+    && activatedMemberships.data.some(row => row.tenant_id === tenantB && row.role === 'qa_recruitment_viewer' && row.status === 'inactive'),
+  `Activation failed to create only the configured tenant membership or changed the other tenant membership: ${JSON.stringify(activatedMemberships.error || activatedMemberships.data)}`);
+  const verifiedHandoff = await admin.from('onboarding_handoffs').select('status,verified_at,verified_by,employee_id,candidate_personal_data')
+    .eq('application_id', application.id).single();
+  assert(!verifiedHandoff.error && verifiedHandoff.data.status === 'completed'
+    && verifiedHandoff.data.verified_at && verifiedHandoff.data.verified_by === staff[3].id
+    && verifiedHandoff.data.employee_id === activatedEmployee.data.id
+    && verifiedHandoff.data.candidate_personal_data.bank_account_number === '1234567890',
+  `Activation did not preserve verified handoff and evidence: ${JSON.stringify(verifiedHandoff.error || verifiedHandoff.data)}`);
+  const hiredApplication = await admin.from('job_applications').select('stage').eq('id', application.id).single();
+  const hiredEvents = await admin.from('candidate_application_stage_history').select('id,actor_user_id').eq('application_id', application.id).eq('stage', 'hired');
+  assert(!hiredApplication.error && hiredApplication.data.stage === 'hired' && !hiredEvents.error
+    && hiredEvents.data.length === 1 && hiredEvents.data[0].actor_user_id === staff[3].id,
+  'Activation did not write exactly one hired event with the authorized HR actor.');
+  const idempotentActivation = await staff[3].client.rpc('hris_activate_candidate_employee', {
+    ...activationArguments, p_joining_date: tenantToday,
+  });
+  assert(!idempotentActivation.error && idempotentActivation.data.idempotent === true
+    && idempotentActivation.data.employee_id === activatedEmployee.data.id,
+  `A safe retry did not return the existing employee record: ${JSON.stringify(idempotentActivation.error || idempotentActivation.data)}`);
+  const candidateEmployeeRead = await users[0].client.from('employees').select('id,tenant_id,user_id').eq('id', activatedEmployee.data.id).single();
+  assert(!candidateEmployeeRead.error && candidateEmployeeRead.data.user_id === users[0].id
+    && candidateEmployeeRead.data.tenant_id === tenantA,
+  `The existing candidate Auth identity could not recover its employee record: ${JSON.stringify(candidateEmployeeRead.error || candidateEmployeeRead.data)}`);
+  await employeeManagerPage.reload({ waitUntil: 'domcontentloaded' });
+  await employeeManagerPage.getByRole('button', { name: 'Onboarding', exact: true }).waitFor({ timeout: 20000 });
+  await employeeManagerPage.getByRole('button', { name: 'Onboarding', exact: true }).click();
+  await employeeManagerPage.getByText('No submitted preboarding packets are waiting for HR.', { exact: true }).waitFor({ timeout: 20000 });
+  assert(!(await employeeManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop activation queue did not recover after refresh.');
   await page.getByRole('heading', { name: 'Preboarding & Employee Transition' }).waitFor({ timeout: 20000 });
   assert(await page.getByLabel(/National ID/).isDisabled(), 'The candidate did not retain the submitted preboarding state after refresh.');
   await employeeManagerContext.close();
@@ -1470,7 +1569,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history stage_history_acl=rls+public-anon-authenticated-denied+service-role-preserved assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=policy-gated+manager-denied unauthorized-activation=6-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history stage_history_acl=rls+public-anon-authenticated-denied+service-role-preserved assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } catch (cause) {
   console.error('CANDIDATE_APPLICATION_LOCAL_E2E ERROR:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
   throw cause;
@@ -1490,6 +1589,10 @@ try {
       console.error(`CANDIDATE_APPLICATION_LOCAL_E2E CLEANUP_ERROR user=${userId}:`, cause instanceof Error ? cause.stack : JSON.stringify(cause));
       throw cause;
     }
+  }
+  if (fixtureReady) {
+    const removedEmployeeRole = await admin.from('roles').delete().eq('id', 'qa_candidate_employee');
+    if (removedEmployeeRole.error) throw removedEmployeeRole.error;
   }
   if (fixtureReady) {
     try { await cleanupStaleTestJobs(); }

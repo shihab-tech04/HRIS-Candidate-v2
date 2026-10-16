@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS public.tenant_memberships (
   tenant_id uuid NOT NULL,
   role text NOT NULL,
   status text NOT NULL,
-  PRIMARY KEY(user_id,tenant_id)
+  PRIMARY KEY(user_id,tenant_id),
+  CONSTRAINT tenant_memberships_role_check CHECK (role IN ('hr_admin','hr_recruiter'))
 );
 CREATE TABLE IF NOT EXISTS public.employees (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
