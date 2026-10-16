@@ -1702,8 +1702,14 @@ try {
     'The employees.manage user did not receive mobile activation controls.');
   await employeeManagerMobilePage.getByRole('button', { name: 'Switch language to Bengali' }).click();
   await mobileActivationCard.getByRole('textbox', { name: 'কর্মচারী নম্বর', exact: true }).waitFor({ state: 'visible' });
-  assert(await mobileActivationCard.getByRole('button', { name: 'কর্মচারী সক্রিয় করুন', exact: true }).isVisible(),
-    'Employee activation controls did not render in Bengali on mobile.');
+  const bengaliActivationButton = mobileActivationCard.getByRole('button', { name: 'কর্মচারী সক্রিয় করুন', exact: true });
+  try {
+    await bengaliActivationButton.waitFor({ state: 'visible', timeout: 5000 });
+  } catch {
+    const renderedButtons = await mobileActivationCard.getByRole('button').allTextContents();
+    const documentLanguage = await employeeManagerMobilePage.locator('html').getAttribute('lang');
+    throw new Error(`Employee activation controls did not render in Bengali on mobile. lang=${documentLanguage}; buttons=${JSON.stringify(renderedButtons)}`);
+  }
   assert(!(await employeeManagerMobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
     'Mobile Bengali employee activation overflows the viewport.');
   await employeeManagerMobilePage.getByRole('button', { name: 'Switch language to English' }).click();
