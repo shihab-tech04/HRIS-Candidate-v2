@@ -101,14 +101,13 @@ test('application history and withdrawal recovery use the shared EN/BN locale an
   assert.equal(translateCandidateText('Submitted {date}', 'bn', { date: '১৫ অক্টোবর ২০২৬' }), '১৫ অক্টোবর ২০২৬-এ জমা');
 });
 
-test('Candidate withdrawal is server-persisted, excludes closed offers, and has real Auth/Postgres recovery coverage', () => {
+test('Candidate withdrawal is server-persisted and preserves existing offer-stage action behavior', () => {
   const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
   assert.match(api, /rpc\('candidate_withdraw_application'/);
-  assert.match(applicationsPage, /withdrawalClosedStages = new Set\(\[[\s\S]*?'offer_accepted'[\s\S]*?'hired'/);
-  assert.match(applicationsPage, /\{canWithdraw && \(/);
+  assert.match(applicationsPage, /!isWithdrawn && !isRejected && \(/);
   assert.match(localJourney, /20261016190000_candidate_application_withdrawal\.sql/);
-  assert.match(localJourney, /candidateCannotWithdrawOtherTenant[\s\S]*?anonymousWithdrawal[\s\S]*?invalidWithdrawalReason[\s\S]*?acceptedOfferWithdrawal/);
-  assert.match(localJourney, /withdrawal=owner\+tenant\+closed-stage\+allowlisted-reason\+idempotent\+audited-history\+retry\+refresh\+ENBN/);
+  assert.match(localJourney, /candidateCannotWithdrawOtherTenant[\s\S]*?anonymousWithdrawal[\s\S]*?invalidWithdrawalReason[\s\S]*?rejectedApplicationWithdrawal/);
+  assert.match(localJourney, /withdrawal=owner\+tenant\+rejected-stage\+offer-stage-preserved\+allowlisted-reason\+idempotent\+audited-history\+retry\+refresh\+ENBN/);
   assert.match(localJourney, /setViewportSize\(\{ width: 375, height: 812 \}\)[\s\S]*?setViewportSize\(\{ width: 1280, height: 800 \}\)/);
 });
 

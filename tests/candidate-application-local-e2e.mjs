@@ -55,8 +55,10 @@ const tenantToday = psql("SELECT (now() AT TIME ZONE 'Asia/Dhaka')::date::text")
 const jobId = randomUUID();
 const otherTenantJobId = randomUUID();
 const withdrawalJobId = randomUUID();
+const rejectedJobId = randomUUID();
 const foreignApplicationId = randomUUID();
 const withdrawalApplicationId = randomUUID();
+const rejectedApplicationId = randomUUID();
 const foreignOfferId = randomUUID();
 const password = `candidate-apply-${randomUUID()}`;
 const users = [
@@ -131,6 +133,7 @@ async function cleanupStaleTestJobs() {
     (row.title === 'Senior Systems Engineer' && /^C1-[0-9a-f]{8}$/i.test(row.reference_number || ''))
     || (row.title === 'Other Tenant Role' && /^C1-X-[0-9a-f]{8}$/i.test(row.reference_number || ''))
     || (row.title === 'Candidate Withdrawal Role' && /^C1-W-[0-9a-f]{8}$/i.test(row.reference_number || ''))
+    || (row.title === 'Candidate Rejected Role' && /^C1-R-[0-9a-f]{8}$/i.test(row.reference_number || ''))
   ).map(row => row.id);
   if (ids.length) {
     const applications = await admin.from('job_applications').select('id').in('job_id', ids);
@@ -260,6 +263,14 @@ try {
   });
   if (withdrawalJob.error) throw withdrawalJob.error;
 
+  const rejectedJob = await admin.from('jobs').insert({
+    id: rejectedJobId, tenant_id: tenantB, reference_number: `C1-R-${rejectedJobId.slice(0, 8)}`,
+    title: 'Candidate Rejected Role', department_name: 'Engineering', workplace_type: 'Remote',
+    employment_type: 'Full-time', status: 'published', is_published: true, is_active: true,
+    required_documents: [], screening_questions: [],
+  });
+  if (rejectedJob.error) throw rejectedJob.error;
+
   for (const user of users) {
     const created = await admin.auth.admin.createUser({
       email: user.email, password, email_confirm: true, user_metadata: { full_name: user.name },
@@ -380,6 +391,20 @@ try {
   ]);
   if (withdrawalHistory.error) throw withdrawalHistory.error;
 
+  const rejectedApplication = await admin.from('job_applications').insert({
+    id: rejectedApplicationId, tenant_id: tenantB, job_id: rejectedJobId,
+    candidate_user_id: users[1].id, full_name: users[1].name, email: users[1].email,
+    stage: 'rejected', status_note: 'Not selected.',
+    applied_at: new Date(Date.now() + 2000).toISOString(), updated_at: new Date().toISOString(),
+    application_data: { answers: [], declarations: { accuracyCertified: true, recruitmentDataConsent: true } },
+  });
+  if (rejectedApplication.error) throw rejectedApplication.error;
+  const rejectedHistory = await admin.from('candidate_application_stage_history').insert({
+    id: randomUUID(), application_id: rejectedApplicationId, stage: 'rejected', note: 'Not selected.',
+    actor_type: 'recruitment', actor_user_id: staff[2].id,
+  });
+  if (rejectedHistory.error) throw rejectedHistory.error;
+
   const candidateCannotWithdrawOtherTenant = await users[0].client.rpc('candidate_withdraw_application', {
     p_application_id: withdrawalApplicationId, p_reason: 'Accepted another job offer',
   });
@@ -393,10 +418,10 @@ try {
     p_application_id: withdrawalApplicationId, p_reason: 'Unlisted reason',
   });
   assert(invalidWithdrawalReason.error?.code === '22023', 'The withdrawal RPC accepted a reason outside the current form choices.');
-  const acceptedOfferWithdrawal = await users[1].client.rpc('candidate_withdraw_application', {
-    p_application_id: foreignApplicationId, p_reason: 'Accepted another job offer',
+  const rejectedApplicationWithdrawal = await users[1].client.rpc('candidate_withdraw_application', {
+    p_application_id: rejectedApplicationId, p_reason: 'Accepted another job offer',
   });
-  assert(acceptedOfferWithdrawal.error?.code === '22023', 'A candidate could withdraw an application with an accepted offer.');
+  assert(rejectedApplicationWithdrawal.error?.code === '22023', 'A candidate could withdraw a rejected application.');
   const unchangedWithdrawalTarget = await admin.from('job_applications').select('stage,status_note')
     .eq('id', withdrawalApplicationId).single();
   assert(!unchangedWithdrawalTarget.error && unchangedWithdrawalTarget.data.stage === 'screening'
@@ -912,8 +937,12 @@ try {
   await withdrawalCard.waitFor({ state: 'visible' });
   const acceptedOfferCard = withdrawalPage.getByRole('button', { name: /Other Tenant Role/ });
   await acceptedOfferCard.click();
+  assert(await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).count() === 1,
+    'The Candidate UI no longer preserves withdrawal access for an offer-stage application.');
+  const rejectedCard = withdrawalPage.getByRole('button', { name: /Candidate Rejected Role/ });
+  await rejectedCard.click();
   assert(await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).count() === 0,
-    'The Candidate UI offered withdrawal after an accepted offer.');
+    'The Candidate UI allowed withdrawal from a rejected application.');
   await withdrawalCard.click();
   await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).waitFor();
   await withdrawalPage.getByRole('button', { name: 'Switch to Bengali' }).click();
@@ -1752,7 +1781,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history withdrawal=owner+tenant+closed-stage+allowlisted-reason+idempotent+audited-history+retry+refresh+ENBN assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history withdrawal=owner+tenant+rejected-stage+offer-stage-preserved+allowlisted-reason+idempotent+audited-history+retry+refresh+ENBN assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } catch (cause) {
   console.error('CANDIDATE_APPLICATION_LOCAL_E2E ERROR:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
   throw cause;
