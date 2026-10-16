@@ -1024,6 +1024,8 @@ try {
 
   await withdrawalPage.reload({ waitUntil: 'domcontentloaded' });
   await withdrawalPage.getByRole('heading', { name: 'আমার আবেদন' }).waitFor({ timeout: 20000 });
+  const refreshedWithdrawalCard = withdrawalPage.getByRole('button', { name: /Candidate Withdrawal Role/ });
+  if (await refreshedWithdrawalCard.getAttribute('aria-expanded') !== 'true') await refreshedWithdrawalCard.click();
   await withdrawalPage.getByRole('region', { name: 'আবেদনের ইতিহাস' })
     .getByText('অন্য চাকরির প্রস্তাব গ্রহণ করেছি', { exact: true }).waitFor({ timeout: 20000 });
   assert(!(await withdrawalPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
