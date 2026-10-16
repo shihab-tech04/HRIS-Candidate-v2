@@ -95,6 +95,8 @@ test('local Auth/Postgres browser acceptance verifies completed interview visibi
   assert.match(localJourney, /সাক্ষাৎকার মূল্যায়নাধীন/);
   assert.match(localJourney, /Private completed-interview recruiter note\./);
   assert.match(localJourney, /directInterviewCompletedHistory\.error\?\.code === '42501'/);
+  assert.match(localJourney, /const desktopInterviewCompletedTimeline = page\.locator\(`#application-history-\$\{interviewCompletedApplicationId\}`\)/);
+  assert.match(localJourney, /desktopInterviewCompletedTimeline\.getByText\('Interview Under Evaluation'/);
   assert.match(localJourney, /interview_completed=visible\+candidate-safe/);
 });
 

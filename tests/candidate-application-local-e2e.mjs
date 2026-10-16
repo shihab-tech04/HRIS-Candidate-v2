@@ -1472,8 +1472,11 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   const desktopHistory = page.locator(`#application-history-${application.id}`);
   await desktopHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
-  await desktopHistory.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
   await desktopHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });
+  const desktopInterviewCompletedTimeline = page.locator(`#application-history-${interviewCompletedApplicationId}`);
+  await desktopInterviewCompletedTimeline.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
+  assert(!(await desktopInterviewCompletedTimeline.innerText()).includes('Private completed-interview recruiter note.'),
+    'Candidate desktop interview-completion history exposed a recruiter-only note.');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop application history overflows the viewport.');
 
   const candidateOfferContexts = [];
