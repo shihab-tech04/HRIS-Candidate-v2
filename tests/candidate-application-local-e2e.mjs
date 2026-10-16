@@ -1539,6 +1539,15 @@ try {
   assert(!idempotentActivation.error && idempotentActivation.data.idempotent === true
     && idempotentActivation.data.employee_id === activatedEmployee.data.id,
   `A safe retry did not return the existing employee record: ${JSON.stringify(idempotentActivation.error || idempotentActivation.data)}`);
+  const activationAudit = await admin.from('admin_audit_logs').select('id,actor_id,action,target_type,target_id,details')
+    .eq('action', 'candidate.employee.activated').eq('target_id', activatedEmployee.data.id);
+  assert(!activationAudit.error && activationAudit.data.length === 1
+    && activationAudit.data[0].actor_id === staff[3].id
+    && activationAudit.data[0].target_type === 'employee'
+    && activationAudit.data[0].details.tenant_id === tenantA
+    && activationAudit.data[0].details.application_id === application.id
+    && activationAudit.data[0].details.employee_number === employeeNumber,
+  `Activation did not write one tenant-scoped audit event or retry duplicated it: ${JSON.stringify(activationAudit.error || activationAudit.data)}`);
   const candidateEmployeeRead = await users[0].client.from('employees').select('id,tenant_id,user_id').eq('id', activatedEmployee.data.id).single();
   assert(!candidateEmployeeRead.error && candidateEmployeeRead.data.user_id === users[0].id
     && candidateEmployeeRead.data.tenant_id === tenantA,
