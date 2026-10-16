@@ -97,11 +97,11 @@ try {
     await page.goto(`http://127.0.0.1:${candidatePort}/?view=dashboard`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Unable to load your workspace' }).waitFor({ timeout: 15000 });
     assert(await page.getByRole('alert').innerText().then(t => t.includes('Please retry.')), `${viewport.label}: authorization failure was not rendered accessibly.`);
-    const retryAction = page.getByRole('main').getByRole('button', { name: 'Retry', exact: true });
+    const retryAction = page.getByRole('button', { name: 'Retry', exact: true });
     assert(await retryAction.isVisible(), `${viewport.label}: retry action is missing. buttons=${JSON.stringify(await page.getByRole('button').allTextContents())} alert=${JSON.stringify(await page.getByRole('alert').innerText())}`);
     await retryAction.click();
     await page.getByRole('heading', { name: 'Unable to load your workspace' }).waitFor({ timeout: 10000 });
-    assert(await page.getByRole('main').getByRole('button', { name: 'Retry', exact: true }).isVisible(), `${viewport.label}: retry did not recover to an actionable error state.`);
+    assert(await page.getByRole('button', { name: 'Retry', exact: true }).isVisible(), `${viewport.label}: retry did not recover to an actionable error state.`);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     if (overflow) {
       const details = await page.evaluate(() => ({
