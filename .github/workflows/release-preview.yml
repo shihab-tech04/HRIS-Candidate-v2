@@ -1,17 +1,12 @@
 name: Candidate-v2 verified GitHub Pages release
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/release-preview.yml'
-      - 'src/**'
-      - 'tests/**'
-      - 'index.html'
-      - '404.html'
-      - 'package.json'
-      - 'vite.config.ts'
-      - 'bun.lock*'
   workflow_dispatch:
+    inputs:
+      release_approved:
+        description: Confirm that the owner has explicitly approved this production release.
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,6 +17,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main' && inputs.release_approved == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -29,6 +25,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun test
+      - run: npm run test:routes
       - run: bun run lint
       - name: Build compiled Candidate-v2 Pages artifact
         env:
@@ -52,6 +49,7 @@ jobs:
           path: dist
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main' && inputs.release_approved == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

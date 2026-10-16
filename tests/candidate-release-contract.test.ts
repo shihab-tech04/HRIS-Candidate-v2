@@ -61,9 +61,17 @@ test('Published hero and culture assets are compiled through Vite import, not ro
 test('C1 protected screens recover from failed context loads',()=>{
  for (const file of ['ApplicationsPage.tsx','OffersPage.tsx','InterviewsPage.tsx','TasksPage.tsx','PreboardingPage.tsx']) {
   const page=readFileSync('src/pages/'+file,'utf8');
+  const retryLoader = {
+   'ApplicationsPage.tsx': 'loadApplications',
+   'OffersPage.tsx': 'loadOffers',
+   'InterviewsPage.tsx': 'loadInterviews',
+   'TasksPage.tsx': 'loadData',
+   'PreboardingPage.tsx': 'loadData',
+  }[file];
   expect(page).toContain('setLoadError(');
   expect(page).toContain('finally');
-  expect(page).toContain('Retry</button>');
+  expect(page).toContain(`onClick={() => void ${retryLoader}()`);
+  expect(page).toMatch(/\{t\('Retry'\)\}<\/button>|>Retry<\/button>/);
   expect(page).toContain('setLoading(false)');
  }
 });

@@ -1,0 +1,9 @@
+# Candidate C1 local portal acceptance — 2026-10-13 11:59 +06
+
+- The Candidate dashboard now handles `candidate_get_recruitment_context()` failures with an accessible error alert, a retry action, and a completed loading transition. This covers the approved backend denial for profiles that are not active.
+- The shared header now adapts its spacing and account label for narrow screens. The account-menu button has an accessible name while its user name is visually hidden below the small-screen breakpoint.
+- Real isolated local GoTrue/PostgREST browser check: `CANDIDATE_DASHBOARD_LOCAL_E2E PASS=11 FAIL=0 viewports=2 retry=2 auth=local-gotrue inactive-denial=confirmed`. The inactive candidate received the backend denial on desktop and mobile, the UI rendered the retryable error state, retry remained available, the page had no horizontal overflow, and no uncaught browser errors occurred.
+- The browser check used the dedicated local Supabase project `synesis-candidate-c1-auth-20261013-1124` on API port 55721, with a synthetic inactive candidate profile. The exact temporary Auth user was deleted and the fixture's prior profile user ID restored.
+- Candidate source checks: `npm run lint` passed; `npm run test:routes` passed 8/8 (including two committed dashboard recovery/mobile header contract tests); `npm run build` passed. Vite reports existing chunk-size and `__dirname` config-loader warnings; they do not fail the build.
+- Backend implementation and acceptance remain in Main commit `ea5060b0134f251afaaa4d23713d95983413805b`, including the tenant-resolution migration and 156/156 isolated Auth/RLS assertions.
+- No production schema/data/Auth was changed, no paid service was activated, and nothing was pushed or deployed. This remains local release-candidate evidence, not production certification.

@@ -8,7 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:routes": "node --import tsx --test tests/candidate-routes.node.test.mjs tests/candidate-notifications.node.test.mjs tests/candidate-dashboard-recovery.node.test.mjs tests/candidate-profile-adapters.node.test.mjs tests/candidate-profile-loading.node.test.mjs tests/candidate-application-contract.node.test.mjs tests/candidate-interviews-workflow.node.test.mjs tests/candidate-localization.node.test.mjs tests/candidate-auth-accessibility.node.test.mjs tests/candidate-password-recovery.node.test.mjs tests/candidate-auth-ci-workflow.node.test.mjs",
+    "test:notifications": "node --import tsx --test tests/candidate-notifications.node.test.mjs",
+    "test:auth-accessibility": "node tests/candidate-auth-accessibility.local-e2e.mjs",
+    "test:password-recovery": "node tests/candidate-password-recovery.local-e2e.mjs",
+    "test:local-profile-e2e": "node tests/candidate-profile-local-e2e.mjs",
+    "test:local-application-e2e": "node tests/candidate-application-local-e2e.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -28,7 +34,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",

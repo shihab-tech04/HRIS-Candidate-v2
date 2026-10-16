@@ -160,6 +160,7 @@ export const TasksPage: React.FC<TasksPageProps> = ({ onNavigate }) => {
               {assessments.map((asm) => {
                 const isPending = asm.status === 'pending';
                 const isSubmitted = asm.status === 'submitted';
+                const isReviewed = asm.status === 'reviewed';
 
                 return (
                   <div
@@ -177,12 +178,10 @@ export const TasksPage: React.FC<TasksPageProps> = ({ onNavigate }) => {
 
                       <span
                         className={`text-xs font-semibold px-3 py-1 rounded-lg border self-start ${
-                          isSubmitted
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                          isPending ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                         }`}
                       >
-                        {isSubmitted ? 'Submitted for Review' : 'Submission Pending'}
+                        {isReviewed ? 'Review Complete' : isSubmitted ? 'Submitted for Review' : 'Submission Pending'}
                       </span>
                     </div>
 
@@ -204,13 +203,14 @@ export const TasksPage: React.FC<TasksPageProps> = ({ onNavigate }) => {
                       </p>
                     </div>
 
-                    {isSubmitted && asm.candidate_response && (
+                    {(isSubmitted || isReviewed) && asm.candidate_response && (
                       <div className="p-3 bg-emerald-50/60 border border-emerald-100 rounded-xl text-xs text-emerald-900 space-y-1">
                         <p className="font-bold flex items-center gap-1.5">
                           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          Your Submission Received on{' '}
-                          {new Date(asm.candidate_response.submitted_at).toLocaleDateString()}
+                          {isReviewed ? 'Your submission was reviewed on ' : 'Your submission was received on '}
+                          {new Date((isReviewed ? asm.reviewed_at : asm.candidate_response.submitted_at) || asm.candidate_response.submitted_at).toLocaleDateString()}
                         </p>
+                        {isReviewed && <p className="text-slate-700">Recruitment has completed its review.</p>}
                         {asm.candidate_response.submission_text && (
                           <p className="text-slate-700 italic">
                             "{asm.candidate_response.submission_text}"
@@ -327,15 +327,15 @@ export const TasksPage: React.FC<TasksPageProps> = ({ onNavigate }) => {
 
         {/* Modal: Submit Assessment */}
         {activeAssessment && (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="assessment-submission-heading" className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-              <h3 className="text-base font-bold text-slate-900">
+              <h3 id="assessment-submission-heading" className="text-base font-bold text-slate-900">
                 Submit Assessment: {activeAssessment.title}
               </h3>
               <p className="text-xs text-slate-600">{activeAssessment.instructions}</p>
 
               {error && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+                <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
                   {error}
                 </div>
               )}

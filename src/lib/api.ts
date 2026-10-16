@@ -1,5 +1,6 @@
 import { getSupabaseClient } from './supabase';
-import { adaptLiveRecruitmentContext } from './recruitmentAdapters';
+import { adaptLiveOnboardingHandoff, adaptLiveRecruitmentContext } from './recruitmentAdapters';
+import { adaptLiveCandidateProfile, toCandidateProfileRpcPayload } from './candidateProfileAdapters';
 import {
   PublishedJob,
   CandidateProfile,
@@ -12,11 +13,48 @@ import {
   CandidateCV,
   SavedJob,
   JobAlert,
-  CandidateNotification
+  CandidateNotification,
+  CandidateStoredDocument
 } from '../types';
 import { INITIAL_PUBLISHED_JOBS } from './mockData';
 
 const LOCAL_STORAGE_KEY_PREFIX = 'synesis_hrmis_candidate_';
+
+type CandidateRecruitmentContext = Record<string, any> & {
+  applications: JobApplication[];
+  interviews: InterviewInvitation[];
+  assessments: CandidateAssessment[];
+  document_requests: CandidateDocumentRequest[];
+  offers: JobOffer[];
+  onboarding: OnboardingHandoff | null;
+  notifications: Array<CandidateNotification | VerifiedCandidateNotification>;
+  notification_load_error?: boolean;
+};
+
+function normalizeDemoOnboardingHandoff(raw: Record<string, any>): OnboardingHandoff {
+  const oldStatus = String(raw.status || 'pending');
+  const status: OnboardingHandoff['status'] = ['pending', 'in_progress', 'completed', 'cancelled'].includes(oldStatus)
+    ? oldStatus as OnboardingHandoff['status']
+    : oldStatus === 'joining_confirmed' || oldStatus === 'verified_by_hr' ? 'completed'
+      : oldStatus === 'submitted_for_verification' ? 'in_progress' : 'pending';
+  const oldData = raw.candidate_personal_data ?? raw.personal_data;
+  const personalData = oldData && typeof oldData === 'object' && !Array.isArray(oldData) ? oldData : {};
+  const oldSteps = raw.candidate_completed_steps ?? raw.completed_steps;
+  const submittedAt = raw.candidate_submitted_at ?? (
+    ['submitted_for_verification', 'verified_by_hr', 'joining_confirmed'].includes(oldStatus)
+      ? raw.updated_at ?? raw.created_at ?? null : null
+  );
+  return {
+    id: String(raw.id || ''),
+    application_id: String(raw.application_id || ''),
+    status,
+    candidate_completed_steps: Array.isArray(oldSteps) ? oldSteps.filter((step: unknown): step is string => typeof step === 'string') : [],
+    candidate_personal_data: personalData,
+    candidate_submitted_at: typeof submittedAt === 'string' ? submittedAt : null,
+    created_at: String(raw.created_at || ''),
+    updated_at: String(raw.updated_at || raw.created_at || ''),
+  };
+}
 
 // Explicit opt-in for isolated local development only. Never use sample data as live HR records.
 export const DEMO_MODE = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_MODE === 'true';
@@ -151,12 +189,11 @@ function initializeLocalState() {
   if (!localStorage.getItem(LOCAL_STORAGE_KEY_PREFIX + 'onboarding')) {
     const defaultOnboarding: OnboardingHandoff = {
       id: 'onb-synesis-301',
-      offer_id: 'ofr-synesis-901',
       application_id: 'app-synesis-098',
-      user_id: 'user-demo-candidate-123',
-      status: 'pending_candidate_info',
-      completed_steps: [],
-      personal_data: {},
+      status: 'pending',
+      candidate_completed_steps: [],
+      candidate_personal_data: {},
+      candidate_submitted_at: null,
       created_at: '2026-10-08T16:30:00Z',
       updated_at: '2026-10-08T16:30:00Z'
     };
@@ -228,7 +265,9 @@ function normalizePublishedJob(row: Record<string, any>): PublishedJob {
         : q.type === 'multi_select' ? 'multiselect' : 'text',
       required: q.required === true,
       options: Array.isArray(q.options) ? q.options : undefined,
-    }))
+    })),
+    required_documents: Array.isArray(row.required_documents)
+      ? row.required_documents.filter((item: unknown): item is string => typeof item === 'string') : []
   };
 }
 
@@ -291,7 +330,7 @@ export async function getMyCandidateProfile(userId: string): Promise<CandidatePr
     try {
       const { data, error } = await supabase.rpc('get_my_candidate_profile');
       if (!error && data) {
-        return data as CandidateProfile;
+        return adaptLiveCandidateProfile(data);
       }
     } catch (e) {
       console.warn('Supabase get_my_candidate_profile error', e);
@@ -311,10 +350,10 @@ export async function updateCandidateProfile(
   if (supabase) {
     try {
       const { data, error } = await supabase.rpc('candidate_update_profile', {
-        p_payload: payload
+        p_payload: toCandidateProfileRpcPayload(payload)
       });
       if (!error && data) {
-        return data as CandidateProfile;
+        return adaptLiveCandidateProfile(data);
       }
     } catch (e) {
       console.warn('Supabase candidate_update_profile error, updating local storage', e);
@@ -354,16 +393,27 @@ export async function updateCandidateProfile(
 // -------------------------------------------------------------
 // CANDIDATE RECRUITMENT CONTEXT: candidate_get_recruitment_context
 // -------------------------------------------------------------
-export async function getRecruitmentContext(userId: string) {
+export async function getRecruitmentContext(userId: string): Promise<CandidateRecruitmentContext> {
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
       const { data, error } = await supabase.rpc('candidate_get_recruitment_context');
       if (!error && data) {
-        return adaptLiveRecruitmentContext(data);
+        const context = adaptLiveRecruitmentContext(data) as CandidateRecruitmentContext;
+        let notifications: VerifiedCandidateNotification[] = [];
+        let notification_load_error = false;
+        try {
+          notifications = await listVerifiedCandidateNotifications(userId);
+        } catch (notificationError) {
+          notification_load_error = true;
+          console.warn('Supabase candidate notifications error', notificationError);
+        }
+        return { ...context, notifications, notification_load_error, onboarding: null };
       }
+      if (error) throw error;
     } catch (e) {
-      console.warn('Supabase candidate_get_recruitment_context error', e);
+      console.warn('Supabase candidate recruitment context error', e);
+      if (!DEMO_MODE) throw new Error('Recruitment and preboarding records could not be verified. Please retry.');
     }
   }
 
@@ -384,9 +434,28 @@ export async function getRecruitmentContext(userId: string) {
     assessments: allAssessments,
     document_requests: allDocRequests,
     offers: allOffers,
-    onboarding: allOnboarding.find((o) => o.user_id === userId) || null,
+    onboarding: (() => {
+      const handoff = allOnboarding.find(item => userApps.some(app => app.id === item.application_id));
+      return handoff ? normalizeDemoOnboardingHandoff(handoff as unknown as Record<string, any>) : null;
+    })(),
     notifications: allNotifications.filter((n) => n.user_id === userId)
   };
+}
+
+export async function getMyPreboardingHandoff(applicationId: string): Promise<OnboardingHandoff | null> {
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const result = await supabase.rpc('candidate_get_my_preboarding_handoff', { p_application_id: applicationId });
+      if (result.error) throw result.error;
+      return result.data ? adaptLiveOnboardingHandoff(result.data) : null;
+    } catch (cause) {
+      if (!DEMO_MODE) throw new Error(cause instanceof Error ? cause.message : 'Preboarding records could not be verified.');
+    }
+  }
+  if (!DEMO_MODE) throw new Error('Preboarding records could not be verified. Please retry.');
+  const handoff = getLocal<Record<string, any>[]>('onboarding', []).find(item => item.application_id === applicationId);
+  return handoff ? normalizeDemoOnboardingHandoff(handoff) : null;
 }
 
 // -------------------------------------------------------------
@@ -403,6 +472,12 @@ export async function applyToJob(
     documents?: { name: string; url: string; type: string }[];
     consent_given: boolean;
     accuracy_certified: boolean;
+    full_name?: string;
+    phone?: string;
+    years_experience?: number;
+    skills?: string[];
+    document_ids?: string[];
+    required_document_map?: Record<string, string>;
   }
 ): Promise<{ success: boolean; application?: JobApplication; error?: string }> {
   // Validate consent
@@ -449,10 +524,14 @@ export async function applyToJob(
         p_job_id: jobId,
         p_payload: {
           selected_cv_id: payload.cv_id,
+          full_name: payload.full_name || null,
+          phone: payload.phone || null,
+          years_experience: payload.years_experience ?? null,
+          skills: payload.skills || null,
           answers: Object.entries(payload.screening_answers).map(([questionId, answer]) => ({ questionId, answer })),
           cover_letter: payload.cover_letter || null,
-          document_ids: [],
-          required_document_map: {},
+          document_ids: payload.document_ids || [],
+          required_document_map: payload.required_document_map || {},
           declarations: {
             accuracyCertified: payload.accuracy_certified,
             recruitmentDataConsent: payload.consent_given
@@ -743,16 +822,15 @@ export async function respondToOffer(
   // If accepted, initiate onboarding handoff record
   if (response === 'accepted') {
     const handoffs = getLocal<OnboardingHandoff[]>('onboarding', []);
-    let handoff = handoffs.find((h) => h.offer_id === offerId);
+      let handoff = handoffs.find((h) => h.application_id === offers[index].application_id);
     if (!handoff) {
       handoff = {
         id: 'onb-' + Date.now(),
-        offer_id: offerId,
         application_id: offers[index].application_id,
-        user_id: 'user-demo-candidate-123',
-        status: 'pending_candidate_info',
-        completed_steps: [],
-        personal_data: {},
+          status: 'pending',
+          candidate_completed_steps: [],
+          candidate_personal_data: {},
+          candidate_submitted_at: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -768,27 +846,50 @@ export async function respondToOffer(
 // PREBOARDING HANDOFF UPDATES
 // -------------------------------------------------------------
 export async function updateOnboardingHandoff(
-  handoffId: string,
+  applicationId: string,
   stepKey: string,
-  stepData: Partial<OnboardingHandoff['personal_data']>
+  stepData: Partial<OnboardingHandoff['candidate_personal_data']>
 ): Promise<{ success: boolean; handoff?: OnboardingHandoff; error?: string }> {
-  if (!DEMO_MODE) return { success: false, error: 'Preboarding updates require a verified backend workflow.' };
-  const handoffs = getLocal<OnboardingHandoff[]>('onboarding', []);
-  const index = handoffs.findIndex((h) => h.id === handoffId);
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    const allowedByStep: Record<string, string[]> = {
+      step_identity: ['national_id', 'passport_number', 'date_of_birth', 'nationality', 'address'],
+      step_emergency: ['emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relation'],
+      step_payroll: ['bank_name', 'bank_account_number', 'tax_identification_number'],
+      step_policies: ['policies_accepted'],
+    };
+    const allowed = allowedByStep[stepKey];
+    if (!allowed) return { success: false, error: 'Unknown preboarding step.' };
+    const payload = Object.fromEntries(allowed.filter(key => Object.hasOwn(stepData, key))
+      .map(key => [key, stepData[key as keyof typeof stepData]]));
+    try {
+      const result = await supabase.rpc('candidate_save_my_preboarding_step', {
+        p_application_id: applicationId,
+        p_step_key: stepKey,
+        p_payload: payload,
+      });
+      if (result.error) return { success: false, error: result.error.message };
+      return { success: true, handoff: adaptLiveOnboardingHandoff(result.data) };
+    } catch (cause) {
+      return { success: false, error: cause instanceof Error ? cause.message : 'Preboarding changes were not saved. Please retry.' };
+    }
+  }
+  if (!DEMO_MODE) return { success: false, error: 'Preboarding changes could not be saved. Please retry.' };
+  const handoffs = getLocal<Record<string, any>[]>('onboarding', []);
+  const index = handoffs.findIndex((h) => h.application_id === applicationId);
   if (index === -1) return { success: false, error: 'Onboarding record not found' };
 
-  const current = handoffs[index];
-  const completedSteps = Array.from(new Set([...current.completed_steps, stepKey]));
+  const current = normalizeDemoOnboardingHandoff(handoffs[index]);
+  const completedSteps = Array.from(new Set([...current.candidate_completed_steps, stepKey]));
+  const personalData = { ...current.candidate_personal_data, ...stepData };
+  const submitted = completedSteps.length >= 4;
 
   const updated: OnboardingHandoff = {
     ...current,
-    completed_steps: completedSteps,
-    personal_data: {
-      ...current.personal_data,
-      ...stepData
-    },
-    status:
-      completedSteps.length >= 4 ? 'submitted_for_verification' : 'pending_candidate_info',
+    candidate_completed_steps: completedSteps,
+    candidate_personal_data: personalData,
+    candidate_submitted_at: submitted ? current.candidate_submitted_at || new Date().toISOString() : current.candidate_submitted_at,
+    status: completedSteps.length ? 'in_progress' : current.status,
     updated_at: new Date().toISOString()
   };
 
@@ -1022,6 +1123,57 @@ export async function uploadCandidateCV(userId: string, cv: CandidateCV, file: F
   }
 }
 
+/** Upload and register a candidate-owned private supporting document. */
+export async function uploadCandidateApplicationDocument(
+  userId: string, title: string, file: File
+): Promise<CandidateStoredDocument> {
+  const sb = await authorizedCandidate(userId);
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle || normalizedTitle.length > 120) {
+    throw new Error('Document title must be between 1 and 120 characters.');
+  }
+  const ext = file.name.toLowerCase().split('.').pop();
+  const mimeByExtension: Record<string, string> = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  };
+  if (!ext || !mimeByExtension[ext]) throw new Error('Upload a PDF or Word document.');
+  if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+    throw new Error('Document must be between 1 byte and 10 MB.');
+  }
+
+  const path = `${userId}/application-documents/${crypto.randomUUID()}.${ext}`;
+  const contentType = mimeByExtension[ext];
+  const { error: uploadError } = await sb.storage.from('candidate-documents')
+    .upload(path, file, { upsert: false, contentType });
+  if (uploadError) throw new Error(uploadError.message);
+
+  try {
+    const { data, error } = await sb.rpc('candidate_add_application_document', {
+      p_title: normalizedTitle,
+      p_file_name: file.name,
+      p_file_path: path,
+      p_content_type: contentType
+    });
+    if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error(error?.message || 'Document metadata was not confirmed by HRMIS.');
+    }
+    const row = data as Record<string, unknown>;
+    return {
+      id: String(row.id || ''),
+      title: String(row.title || normalizedTitle),
+      fileName: String(row.fileName || file.name),
+      fileUrl: String(row.fileUrl || path),
+      contentType: String(row.contentType || contentType),
+      uploadedAt: String(row.uploadedAt || new Date().toISOString())
+    };
+  } catch (error) {
+    await sb.storage.from('candidate-documents').remove([path]);
+    throw error;
+  }
+}
+
 /** Signed links are short-lived and scoped by the user's storage policy. */
 export async function getCandidateCVDownloadUrl(userId: string, cv: CandidateCV): Promise<string> {
   const sb = await authorizedCandidate(userId);
@@ -1040,6 +1192,8 @@ export type VerifiedApplicationDraft = {
   cvId?: string;
   answers: Record<string, unknown>;
   coverLetter: string;
+  documentIds?: string[];
+  requiredDocumentMap?: Record<string, string>;
 };
 export async function loadVerifiedApplicationDraft(userId: string, jobId: string):
   Promise<VerifiedApplicationDraft | null> {
@@ -1055,7 +1209,11 @@ export async function loadVerifiedApplicationDraft(userId: string, jobId: string
     cvId: typeof draft?.cvId === 'string' ? draft.cvId : undefined,
     answers: draft?.answers && typeof draft.answers === 'object' && !Array.isArray(draft.answers)
       ? draft.answers as Record<string, unknown> : {},
-    coverLetter: typeof draft?.coverLetter === 'string' ? draft.coverLetter : ''
+    coverLetter: typeof draft?.coverLetter === 'string' ? draft.coverLetter : '',
+    documentIds: Array.isArray(draft?.documentIds)
+      ? draft.documentIds.filter((id): id is string => typeof id === 'string') : [],
+    requiredDocumentMap: draft?.requiredDocumentMap && typeof draft.requiredDocumentMap === 'object' && !Array.isArray(draft.requiredDocumentMap)
+      ? Object.fromEntries(Object.entries(draft.requiredDocumentMap).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {}
   };
 }
 export async function saveVerifiedApplicationDraft(userId: string, jobId: string,
@@ -1064,7 +1222,10 @@ export async function saveVerifiedApplicationDraft(userId: string, jobId: string
   const { error } = await sb.from('candidate_application_drafts').upsert({
     candidate_user_id: userId, job_id: jobId,
     current_step: Math.max(1, Math.min(4, Math.trunc(draft.step))),
-    draft_data: { cvId: draft.cvId || null, answers: draft.answers, coverLetter: draft.coverLetter }
+    draft_data: {
+      cvId: draft.cvId || null, answers: draft.answers, coverLetter: draft.coverLetter,
+      documentIds: draft.documentIds || [], requiredDocumentMap: draft.requiredDocumentMap || {}
+    }
   }, { onConflict: 'candidate_user_id,job_id' });
   if (error) throw new Error(error.message);
 }
@@ -1104,4 +1265,131 @@ export async function toggleVerifiedSavedJob(userId: string, jobId: string, demo
     .insert({candidate_user_id:userId,job_id:jobId});
   if (response.error) throw new Error(response.error.message);
   return true;
+}
+
+export type VerifiedCandidateJobAlert = {
+  id: string;
+  title: string;
+  keywords: string | null;
+  department: string | null;
+  location: string | null;
+  workplace_type: string | null;
+  employment_type: string | null;
+  frequency: 'Instant';
+  is_active: boolean;
+  created_at: string;
+};
+
+export type VerifiedCandidateJobAlertInput = Pick<VerifiedCandidateJobAlert,
+  'title' | 'keywords' | 'department' | 'location' | 'workplace_type' | 'employment_type'>;
+
+export type VerifiedCandidateNotification = {
+  id: string;
+  title: string;
+  message: string;
+  notification_type: string;
+  related_application_id: string | null;
+  related_job_id: string | null;
+  action_view: string | null;
+  is_read: boolean;
+  created_at: string;
+};
+
+/** Live candidate alerts use the verified production table and owner-bound RLS. */
+export async function listVerifiedCandidateJobAlerts(userId: string): Promise<VerifiedCandidateJobAlert[]> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_job_alerts')
+    .select('id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active,created_at')
+    .eq('candidate_user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []).map(row => ({
+    id: String(row.id),
+    title: String(row.title || ''),
+    keywords: row.keywords == null ? null : String(row.keywords),
+    department: row.department == null ? null : String(row.department),
+    location: row.location == null ? null : String(row.location),
+    workplace_type: row.workplace_type == null ? null : String(row.workplace_type),
+    employment_type: row.employment_type == null ? null : String(row.employment_type),
+    frequency: 'Instant',
+    is_active: row.is_active === true,
+    created_at: String(row.created_at || ''),
+  }));
+}
+
+export async function createVerifiedCandidateJobAlert(
+  userId: string, input: VerifiedCandidateJobAlertInput
+): Promise<VerifiedCandidateJobAlert> {
+  const sb = await authorizedCandidate(userId);
+  const title = input.title.trim();
+  if (!title) throw new Error('Enter a name for this job alert.');
+  const nullableText = (value: string | null) => value?.trim() || null;
+  const { data, error } = await sb.from('candidate_job_alerts').insert({
+    candidate_user_id: userId,
+    title,
+    keywords: nullableText(input.keywords),
+    department: nullableText(input.department),
+    location: nullableText(input.location),
+    workplace_type: nullableText(input.workplace_type),
+    employment_type: nullableText(input.employment_type),
+    frequency: 'Instant',
+    is_active: true,
+  }).select('id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active,created_at')
+    .single();
+  if (error || !data) throw new Error(error?.message || 'Job alert was not saved.');
+  return {
+    id: String(data.id), title: String(data.title || ''),
+    keywords: data.keywords == null ? null : String(data.keywords),
+    department: data.department == null ? null : String(data.department),
+    location: data.location == null ? null : String(data.location),
+    workplace_type: data.workplace_type == null ? null : String(data.workplace_type),
+    employment_type: data.employment_type == null ? null : String(data.employment_type),
+    frequency: 'Instant', is_active: data.is_active === true, created_at: String(data.created_at || ''),
+  };
+}
+
+export async function deleteVerifiedCandidateJobAlert(userId: string, alertId: string): Promise<void> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_job_alerts').delete()
+    .eq('id', alertId).eq('candidate_user_id', userId).select('id').maybeSingle();
+  if (error || !data) throw new Error(error?.message || 'Job alert is no longer available.');
+}
+
+/** Candidate notifications are read through owner-scoped RLS; writes are limited to the existing read-state field. */
+export async function listVerifiedCandidateNotifications(userId: string): Promise<VerifiedCandidateNotification[]> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_notifications')
+    .select('id,title,message,notification_type,related_application_id,related_job_id,action_view,is_read,created_at')
+    .eq('candidate_user_id', userId)
+    .order('created_at', { ascending: false }).limit(50);
+  if (error) throw new Error(error.message);
+  return (data || []).map(row => ({
+    id: String(row.id), title: String(row.title || ''), message: String(row.message || ''),
+    notification_type: String(row.notification_type || 'system'),
+    related_application_id: row.related_application_id == null ? null : String(row.related_application_id),
+    related_job_id: row.related_job_id == null ? null : String(row.related_job_id),
+    action_view: row.action_view == null ? null : String(row.action_view),
+    is_read: row.is_read === true, created_at: String(row.created_at || ''),
+  }));
+}
+
+/** Preserve the saved-jobs page contract while sharing the owner-scoped notification read. */
+export async function listVerifiedJobAlertNotifications(userId: string): Promise<VerifiedCandidateNotification[]> {
+  return (await listVerifiedCandidateNotifications(userId))
+    .filter(notification => notification.notification_type === 'job_alert_match');
+}
+
+export async function markVerifiedCandidateNotificationRead(userId: string, notificationId: string): Promise<void> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_notifications').update({ is_read: true })
+    .eq('id', notificationId).eq('candidate_user_id', userId).select('id').maybeSingle();
+  if (error || !data) throw new Error(error?.message || 'Notification is no longer available.');
+}
+
+export async function markVerifiedJobAlertNotificationRead(userId: string, notificationId: string): Promise<void> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_notifications').update({ is_read: true })
+    .eq('id', notificationId).eq('candidate_user_id', userId)
+    .eq('notification_type', 'job_alert_match').select('id').maybeSingle();
+  if (error || !data) throw new Error(error?.message || 'Notification is no longer available.');
 }

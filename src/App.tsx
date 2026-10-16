@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { CandidateLocaleProvider } from './context/CandidateLocaleContext';
 import { Navbar } from './components/common/Navbar';
 import { Footer } from './components/common/Footer';
 import { AuthModal } from './components/auth/AuthModal';
@@ -29,41 +30,105 @@ import { ProfilePage } from './pages/ProfilePage';
 import { SavedJobsPage } from './pages/SavedJobsPage';
 import VerifiedSavedJobsPage from './pages/VerifiedSavedJobsPage';
 import { AboutPage } from './pages/AboutPage';
+import { candidateRouteHref, CandidateRoute, CandidateTab, parseCandidateRoute } from './lib/candidateRoutes';
+
+const DEFAULT_JOB_ID = 'job-synesis-001';
+
+function isCandidateTab(tab: string): tab is CandidateTab {
+  return ['jobs', 'job-details', 'apply', 'dashboard', 'applications', 'cv-builder',
+    'interviews', 'tasks', 'offers', 'preboarding', 'profile', 'saved-jobs', 'about'].includes(tab);
+}
 
 function MainAppContent() {
-  const { user } = useAuth();
-  const [currentTab, setCurrentTab] = useState<string>('jobs');
-  const [selectedJobId, setSelectedJobId] = useState<string>('job-synesis-001');
-  const [selectedAppId, setSelectedAppId] = useState<string | undefined>(undefined);
+  const { user, loading: authLoading, passwordRecoveryRequired, passwordRecoveryError, cancelPasswordRecovery } = useAuth();
+  const [initialRoute] = useState(() => parseCandidateRoute(window.location.search));
+  const [currentTab, setCurrentTabState] = useState<CandidateTab>(initialRoute.tab);
+  const [selectedJobId, setSelectedJobId] = useState<string>(initialRoute.jobId || DEFAULT_JOB_ID);
+  const [selectedAppId, setSelectedAppId] = useState<string | undefined>(initialRoute.applicationId);
 
   // Modals
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
+  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup' | 'forgot' | 'recovery'>('signin');
   const [authReturnNotice, setAuthReturnNotice] = useState<string | undefined>(undefined);
   const [configModalOpen, setConfigModalOpen] = useState(false);
 
   // Pending navigation after auth
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
+  useEffect(() => {
+    const restoreFromLocation = () => {
+      const route = parseCandidateRoute(window.location.search);
+      setCurrentTabState(route.tab);
+      setSelectedJobId(route.jobId || DEFAULT_JOB_ID);
+      setSelectedAppId(route.applicationId);
+    };
+    window.addEventListener('popstate', restoreFromLocation);
+    return () => window.removeEventListener('popstate', restoreFromLocation);
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || currentTab !== 'apply' || user) return;
+    setAuthReturnNotice('Sign in or register to continue your application.');
+    setAuthModalMode('signin');
+    setAuthModalOpen(true);
+  }, [authLoading, currentTab, user]);
+
+  useEffect(() => {
+    if (!passwordRecoveryRequired) return;
+    setAuthModalMode('recovery');
+    setAuthReturnNotice(undefined);
+    setAuthModalOpen(true);
+  }, [passwordRecoveryRequired]);
+
+  useEffect(() => {
+    if (!passwordRecoveryError) return;
+    setAuthModalMode('forgot');
+    setAuthReturnNotice(passwordRecoveryError);
+    setAuthModalOpen(true);
+  }, [passwordRecoveryError]);
+
+  const closeAuthModal = async () => {
+    if (passwordRecoveryRequired) await cancelPasswordRecovery();
+    setAuthModalOpen(false);
+  };
+
+  const navigateToTab = (tab: string, options: { jobId?: string; applicationId?: string } = {}) => {
+    const nextTab: CandidateTab = isCandidateTab(tab) ? tab : 'jobs';
+    const nextRoute: CandidateRoute = {
+      tab: nextTab,
+      ...((nextTab === 'job-details' || nextTab === 'apply')
+        ? { jobId: options.jobId || selectedJobId || DEFAULT_JOB_ID }
+        : {}),
+      ...(nextTab === 'applications' && options.applicationId
+        ? { applicationId: options.applicationId }
+        : {}),
+    };
+    const href = candidateRouteHref(window.location, nextRoute);
+    window.history.pushState(null, '', href);
+    setCurrentTabState(nextRoute.tab);
+    setSelectedJobId(nextRoute.jobId || DEFAULT_JOB_ID);
+    setSelectedAppId(nextRoute.applicationId);
+  };
+
   const handleSelectJob = (jobId: string) => {
-    setSelectedJobId(jobId);
-    setCurrentTab('job-details');
+    navigateToTab('job-details', { jobId });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleApplyJob = (jobId: string) => {
-    setSelectedJobId(jobId);
     if (!user) {
+      if (currentTab !== 'job-details' || selectedJobId !== jobId) {
+        navigateToTab('job-details', { jobId });
+      }
       setAuthReturnNotice('Sign in or register to begin your job application.');
       setPendingAction(() => () => {
-        setSelectedJobId(jobId);
-        setCurrentTab('apply');
+        navigateToTab('apply', { jobId });
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
       setAuthModalOpen(true);
       return;
     }
-    setCurrentTab('apply');
+    navigateToTab('apply', { jobId });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -81,8 +146,7 @@ function MainAppContent() {
   };
 
   const handleApplicationSuccess = (applicationId: string) => {
-    setSelectedAppId(applicationId);
-    setCurrentTab('applications');
+    navigateToTab('applications', { applicationId });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -90,7 +154,7 @@ function MainAppContent() {
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans">
       <Navbar
         currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
+        setCurrentTab={navigateToTab}
         openAuthModal={() => handleOpenAuth()}
         openConfigModal={() => setConfigModalOpen(true)}
       />
@@ -107,60 +171,60 @@ function MainAppContent() {
         {currentTab === 'job-details' && (DEMO_MODE ?
           <JobDetailsPage
             jobId={selectedJobId}
-            onBack={() => setCurrentTab('jobs')}
+            onBack={() => navigateToTab('jobs')}
             onApply={handleApplyJob}
             onOpenAuth={(notice) => handleOpenAuth(notice)}
-          /> : <VerifiedJobDetails jobId={selectedJobId} onBack={() => setCurrentTab('jobs')} onApply={handleApplyJob} onOpenAuth={(notice) => handleOpenAuth(notice)} />
+          /> : <VerifiedJobDetails jobId={selectedJobId} onBack={() => navigateToTab('jobs')} onApply={handleApplyJob} onOpenAuth={(notice) => handleOpenAuth(notice)} />
         )}
 
         {currentTab === 'apply' && (DEMO_MODE ?
           <ApplyPage jobId={selectedJobId}
-            onBack={() => setCurrentTab('job-details')}
+            onBack={() => navigateToTab('job-details')}
             onApplicationSuccess={handleApplicationSuccess} /> :
           <VerifiedApplyPage jobId={selectedJobId}
-            onBack={() => setCurrentTab('job-details')}
+            onBack={() => navigateToTab('job-details')}
             onApplicationSuccess={handleApplicationSuccess} />
         )}
 
         {currentTab === 'dashboard' && (
           <DashboardPage
-            onNavigate={(tab) => setCurrentTab(tab)}
+            onNavigate={(tab) => navigateToTab(tab)}
             onSelectApplication={(appId) => {
               setSelectedAppId(appId);
-              setCurrentTab('applications');
+              navigateToTab('applications', { applicationId: appId });
             }}
           />
         )}
 
         {currentTab === 'applications' && (
           <ApplicationsPage
-            onNavigate={(tab) => setCurrentTab(tab)}
+            onNavigate={(tab) => navigateToTab(tab)}
             selectedAppId={selectedAppId}
           />
         )}
 
         {currentTab === 'cv-builder' && (
-          <CVBuilderPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <CVBuilderPage onNavigate={(tab) => navigateToTab(tab)} />
         )}
 
         {currentTab === 'interviews' && (
-          <InterviewsPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <InterviewsPage onNavigate={(tab) => navigateToTab(tab)} />
         )}
 
         {currentTab === 'tasks' && (
-          <TasksPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <TasksPage onNavigate={(tab) => navigateToTab(tab)} />
         )}
 
         {currentTab === 'offers' && (
-          <OffersPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <OffersPage onNavigate={(tab) => navigateToTab(tab)} />
         )}
 
         {currentTab === 'preboarding' && (
-          <PreboardingPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <PreboardingPage onNavigate={(tab) => navigateToTab(tab)} />
         )}
 
         {currentTab === 'profile' && (
-          <ProfilePage onNavigate={(tab) => setCurrentTab(tab)} />
+          <ProfilePage onNavigate={(tab) => navigateToTab(tab)} />
         )}
 
         {currentTab === 'saved-jobs' && (DEMO_MODE ?
@@ -172,18 +236,18 @@ function MainAppContent() {
         )}
 
         {currentTab === 'about' && (
-          <AboutPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <AboutPage onNavigate={(tab) => navigateToTab(tab)} />
         )}
       </main>
 
       <Footer
-        onNavigate={(tab) => setCurrentTab(tab)}
+        onNavigate={(tab) => navigateToTab(tab)}
         onOpenConfig={() => setConfigModalOpen(true)}
       />
 
       <AuthModal
         isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
+        onClose={() => { void closeAuthModal(); }}
         initialMode={authModalMode}
         returnNotice={authReturnNotice}
         onSuccess={handleAuthSuccess}
@@ -199,8 +263,10 @@ function MainAppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      {import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true' ? <PublicOnlyCareers /> : <MainAppContent />}
-    </AuthProvider>
+    <CandidateLocaleProvider>
+      <AuthProvider>
+        {import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true' ? <PublicOnlyCareers /> : <MainAppContent />}
+      </AuthProvider>
+    </CandidateLocaleProvider>
   );
 }
