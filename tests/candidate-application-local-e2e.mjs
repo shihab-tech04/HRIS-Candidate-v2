@@ -1294,7 +1294,7 @@ try {
     && candidateReviewRecord.reviewed_at === reviewedAssessment.data.reviewed_at
     && !Object.hasOwn(candidateReviewRecord, 'review_note') && !Object.hasOwn(candidateReviewRecord, 'reviewed_by'),
   'Candidate did not recover the review completion state or received private review metadata.');
-  await mainManagerPage.getByText('Schedule interview', { exact: true }).click();
+  await mainManagerPage.locator('summary').filter({ hasText: 'Schedule interview' }).click();
   assert(await mainManagerPage.locator('form').last().evaluate(form => !form.checkValidity()), 'Interview schedule form did not require its round, date, and duration.');
   await mainManagerPage.getByLabel('Interview round').fill(interviewArguments.p_round_name);
   await mainManagerPage.getByLabel('Interview format').selectOption(interviewArguments.p_format);
