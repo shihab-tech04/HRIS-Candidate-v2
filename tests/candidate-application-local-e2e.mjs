@@ -1451,7 +1451,7 @@ try {
   assert(await mobileActivationCard.getByRole('button', { name: 'Activate employee', exact: true }).isVisible(),
     'The employees.manage user did not receive mobile activation controls.');
   await employeeManagerMobilePage.getByRole('button', { name: 'Switch language to Bengali' }).click();
-  await mobileActivationCard.getByLabel('কর্মচারী নম্বর').waitFor({ state: 'visible' });
+  await mobileActivationCard.getByRole('textbox', { name: 'কর্মচারী নম্বর', exact: true }).waitFor({ state: 'visible' });
   assert(await mobileActivationCard.getByRole('button', { name: 'কর্মচারী সক্রিয় করুন', exact: true }).isVisible(),
     'Employee activation controls did not render in Bengali on mobile.');
   assert(!(await employeeManagerMobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
