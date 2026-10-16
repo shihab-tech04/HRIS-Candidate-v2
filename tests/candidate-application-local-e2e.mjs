@@ -629,6 +629,41 @@ try {
   const removedSavedJob = await admin.from('candidate_saved_jobs').select('id').eq('candidate_user_id', users[0].id).eq('job_id', jobId);
   assert(!removedSavedJob.error && removedSavedJob.data.length === 0, 'Removing a saved job did not persist its deletion.');
 
+  await mobilePage.getByRole('button', { name: 'Switch to Bengali' }).click();
+  await mobilePage.getByRole('heading', { name: 'সংরক্ষিত চাকরি ও সতর্কবার্তা' }).waitFor({ timeout: 20000 });
+  assert(await mobilePage.locator('html').getAttribute('lang') === 'bn', 'Saved jobs did not apply the selected Bengali document language.');
+  await mobilePage.getByRole('heading', { name: 'আমার সংরক্ষিত চাকরি' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByText('এখনও কোনো চাকরি সংরক্ষণ করেননি।', { exact: true }).waitFor({ timeout: 20000 });
+  await mobilePage.getByText('তাৎক্ষণিক · সক্রিয়', { exact: true }).waitFor({ timeout: 20000 });
+  await mobilePage.getByRole('heading', { name: 'নতুন চাকরি আপনার সতর্কতার সঙ্গে মিলেছে' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByText(/· পঠিত$/).waitFor({ timeout: 20000 });
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Bengali saved-jobs view overflows at 375px.');
+  await mobilePage.setViewportSize({ width: 1280, height: 900 });
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Bengali saved-jobs view overflows at 1280px.');
+  await mobilePage.reload({ waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'আমার সংরক্ষিত চাকরি' }).waitFor({ timeout: 20000 });
+  assert(await mobilePage.locator('html').getAttribute('lang') === 'bn', 'Bengali selection did not survive a full page refresh.');
+
+  await mobilePage.setViewportSize({ width: 375, height: 812 });
+  await mobilePage.route(savedJobLookupEndpoint, route => route.abort());
+  expectedSavedJobLookupFailure = true;
+  expectedSavedJobLookupFailureObserved = false;
+  await mobilePage.reload({ waitUntil: 'domcontentloaded' });
+  const localizedSavedJobsAlert = mobilePage.getByRole('alert');
+  await localizedSavedJobsAlert.getByText('সংরক্ষিত চাকরি ও সতর্কতা পাওয়া যাচ্ছে না।').waitFor({ timeout: 20000 });
+  await localizedSavedJobsAlert.getByRole('button', { name: 'আবার চেষ্টা করুন' }).waitFor({ timeout: 20000 });
+  await mobilePage.unroute(savedJobLookupEndpoint);
+  assert(expectedSavedJobLookupFailureObserved, 'Bengali recovery journey did not reach the simulated saved-job read failure.');
+  await localizedSavedJobsAlert.getByRole('button', { name: 'আবার চেষ্টা করুন' }).click();
+  await mobilePage.getByRole('heading', { name: 'আমার সংরক্ষিত চাকরি' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByRole('heading', { name: 'নতুন চাকরি আপনার সতর্কতার সঙ্গে মিলেছে' }).waitFor({ timeout: 20000 });
+  expectedSavedJobLookupFailure = false;
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Bengali saved-jobs recovery view overflows at 375px.');
+
+  await mobilePage.getByRole('button', { name: 'Switch to English' }).click();
+  await mobilePage.getByRole('heading', { name: 'My saved jobs' }).waitFor({ timeout: 20000 });
+  assert(await mobilePage.locator('html').getAttribute('lang') === 'en', 'Saved jobs could not switch back to English.');
+
   await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=apply&job=${jobId}`, { waitUntil: 'domcontentloaded' });
   try {
     await mobilePage.getByRole('heading', { name: 'Apply for Senior Systems Engineer' }).waitFor({ timeout: 20000 });
