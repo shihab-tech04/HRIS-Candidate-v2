@@ -1477,8 +1477,8 @@ try {
   const activationCard = employeeManagerPage.locator('section[aria-labelledby="preboarding-queue-heading"]');
   await activationCard.getByText(users[0].email, { exact: true }).waitFor({ timeout: 20000 });
   const employeeNumber = activationArguments.p_employee_number;
-  await activationCard.getByLabel('Employee number').fill(employeeNumber);
-  await activationCard.getByLabel('Confirm joining date').fill(issueArguments.p_proposed_joining_date);
+  await activationCard.getByRole('textbox', { name: 'Employee number', exact: true }).fill(employeeNumber);
+  await activationCard.getByRole('textbox', { name: 'Confirm joining date', exact: true }).fill(issueArguments.p_proposed_joining_date);
   await activationCard.getByRole('checkbox', { name: 'I verified the submitted details and confirm the employee number and joining date.' }).check();
   await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).click();
   await activationCard.getByRole('alert').getByText('The active Employee role is not configured for this organization. Configure it before activation.').waitFor({ timeout: 10000 });
@@ -1501,7 +1501,7 @@ try {
     && !hiredHistory.error && hiredHistory.data.length === 0,
   'Blocked activation changed the accepted-offer application or wrote a hired event.');
 
-  await activationCard.getByLabel('Confirm joining date').fill(tenantToday);
+  await activationCard.getByRole('textbox', { name: 'Confirm joining date', exact: true }).fill(tenantToday);
   await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).click();
   await activationCard.getByText('Employee activated. The candidate keeps the same sign-in identity.', { exact: true }).waitFor({ timeout: 20000 });
   await activationCard.getByText('No submitted preboarding packets are waiting for HR.', { exact: true }).waitFor({ timeout: 20000 });
