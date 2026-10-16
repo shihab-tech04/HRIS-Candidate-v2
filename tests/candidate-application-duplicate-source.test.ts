@@ -52,6 +52,7 @@ const payload = {
 };
 
 test('live application submission lets HRIS decide duplicates over stale browser state', async () => {
+  rpc.mockClear();
   stored.set(storageKey, JSON.stringify([{
     id: 'old-preview-application', user_id: userId, job_id: jobId, status: 'submitted'
   }]));
@@ -66,6 +67,7 @@ test('live application submission lets HRIS decide duplicates over stale browser
 });
 
 test('HRIS duplicate rejection is returned to the candidate even when local history is stale', async () => {
+  rpc.mockClear();
   stored.set(storageKey, JSON.stringify([{
     id: 'old-preview-application', user_id: userId, job_id: jobId, status: 'submitted'
   }]));
