@@ -662,7 +662,7 @@ try {
   expectedSavedJobLookupFailure = false;
   assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Bengali saved-jobs recovery view overflows at 375px.');
 
-  await mobilePage.getByRole('button', { name: 'Switch to English' }).click();
+  await mobilePage.getByRole('button', { name: 'ইংরেজিতে পরিবর্তন করুন' }).click();
   await mobilePage.getByRole('heading', { name: 'My saved jobs' }).waitFor({ timeout: 20000 });
   assert(await mobilePage.locator('html').getAttribute('lang') === 'en', 'Saved jobs could not switch back to English.');
 
