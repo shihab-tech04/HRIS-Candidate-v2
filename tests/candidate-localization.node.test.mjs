@@ -61,3 +61,29 @@ test('the public journey and sign-in surfaces use the shared translations', () =
     assert.match(source, /useCandidateLocale|CandidateLocaleSwitch/, `${file} should use shared locale support`);
   }
 });
+
+test('offer and preboarding interface copy is bilingual while persisted terms and payload values stay unchanged', () => {
+  for (const [file, minimumKeys] of [
+    ['src/pages/OffersPage.tsx', 40],
+    ['src/pages/PreboardingPage.tsx', 55],
+  ]) {
+    const source = readFileSync(path.join(root, file), 'utf8');
+    assert.match(source, /useCandidateLocale/, `${file} should use the persisted shared locale`);
+    const keys = [...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'/g)].map(match => match[1].replace(/\\'/g, "'"));
+    assert.ok(keys.length >= minimumKeys, `${file} should translate its visible static interface copy`);
+    for (const key of keys) {
+      assert.ok(CANDIDATE_BENGALI[key], `Missing Bengali translation for ${file}: ${key}`);
+      assert.notEqual(CANDIDATE_BENGALI[key], key, `Translation is still English for ${file}: ${key}`);
+    }
+  }
+
+  const offers = readFileSync(path.join(root, 'src/pages/OffersPage.tsx'), 'utf8');
+  const preboarding = readFileSync(path.join(root, 'src/pages/PreboardingPage.tsx'), 'utf8');
+  assert.match(offers, /respondToOffer\(\s*selectedOffer\.id,\s*responseType,\s*signatureText\.trim\(\),\s*responseNotes\.trim\(\)/);
+  assert.match(offers, /\{offer\.terms\}</);
+  assert.match(offers, /\{b\}/);
+  assert.match(preboarding, /updateOnboardingHandoff\(handoff\.application_id, stepKey, formData\)/);
+  assert.match(preboarding, /<option value="Spouse">\{t\('Spouse'\)\}<\/option>/);
+  assert.equal(translateCandidateText('Department: {department} · Reference ID: {reference}', 'bn', { department: 'Research', reference: 'O-17' }), 'বিভাগ: Research · রেফারেন্স আইডি: O-17');
+  assert.equal(translateCandidateText('Complete each required field: {fields}', 'bn', { fields: 'national_id, date_of_birth' }), 'প্রতিটি আবশ্যিক ঘর পূরণ করুন: national_id, date_of_birth');
+});

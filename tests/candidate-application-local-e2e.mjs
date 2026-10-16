@@ -1231,6 +1231,15 @@ try {
       candidateOfferContexts.push({ status: response.status(), offers: (payload.offers || []).map(offer => ({ id: offer.id, terms: offer.terms })) });
     } catch { candidateOfferContexts.push({ status: response.status(), parseFailed: true }); }
   });
+  await page.getByRole('button', { name: 'Switch to Bengali' }).click();
+  await page.getByRole('button', { name: 'চাকরির প্রস্তাব ও প্রাক-যোগদান', exact: true }).click();
+  await page.getByRole('heading', { name: 'চাকরির প্রস্তাবসমূহ', exact: true }).waitFor({ timeout: 20000 });
+  const bengaliOfferText = await page.locator('body').innerText();
+  assert(bengaliOfferText.includes('অনুমোদিত পারিশ্রমিকের বিবরণ')
+    && bengaliOfferText.includes('Role: Senior Systems Engineer'),
+  'Bengali offer labels did not localize or employer-entered offer terms changed.');
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop Bengali candidate offer page overflows the viewport.');
+  await page.getByRole('button', { name: 'Switch to English' }).click();
   await page.getByRole('button', { name: 'Offers & Preboarding', exact: true }).click();
   await page.getByRole('heading', { name: 'Employment Offers' }).waitFor({ timeout: 20000 });
   const candidateOfferPageText = await page.locator('body').innerText();
@@ -1245,6 +1254,11 @@ try {
   assert(!acceptedOfferRow.error && acceptedOfferRow.data.status === 'accepted' && acceptedOfferRow.data.acceptance_signature === 'Candidate A Application Name', 'Candidate offer acceptance and electronic signature did not persist.');
   const generatedHandoff = await admin.from('onboarding_handoffs').select('id,status,application_id').eq('application_id', application.id).single();
   assert(!generatedHandoff.error && generatedHandoff.data.status === 'pending', 'Accepted offer did not create the linked pending preboarding handoff.');
+  await page.getByRole('button', { name: 'Switch to Bengali' }).click();
+  await page.getByRole('heading', { name: 'প্রাক-যোগদান ও কর্মী রূপান্তর', exact: true }).waitFor({ timeout: 20000 });
+  assert(await page.getByLabel('জাতীয় পরিচয়পত্র (NID) নম্বর *').isVisible(), 'Desktop Bengali preboarding form labels did not render.');
+  await page.getByRole('button', { name: 'Switch to English' }).click();
+  await page.getByRole('heading', { name: 'Preboarding & Employee Transition', exact: true }).waitFor({ timeout: 20000 });
 
   const preboardingMobile = await browser.newContext({ viewport: { width: 375, height: 812 } });
   const preboardingPage = await preboardingMobile.newPage();
@@ -1255,15 +1269,25 @@ try {
       preboardingRpcResponses.push({ status: response.status(), body: (await response.text()).slice(0, 1200) });
     }
   });
-  await preboardingPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+  await preboardingPage.addInitScript(({ storageKey, session }) => {
+    localStorage.setItem(storageKey, JSON.stringify(session));
+    localStorage.setItem('synesis-candidate-locale-v1', 'bn');
+  }, {
     storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
   });
   await preboardingPage.goto(`http://127.0.0.1:${webPort}/?view=preboarding`, { waitUntil: 'domcontentloaded' });
-  await preboardingPage.getByRole('heading', { name: 'Preboarding & Employee Transition' }).waitFor({ timeout: 20000 });
-  await preboardingPage.getByRole('button', { name: 'Save Identity Details' }).click();
+  await preboardingPage.getByRole('heading', { name: 'প্রাক-যোগদান ও কর্মী রূপান্তর', exact: true }).waitFor({ timeout: 20000 });
+  await preboardingPage.waitForFunction(() => localStorage.getItem('synesis-candidate-locale-v1') === 'bn');
+  assert(await preboardingPage.getByLabel('জাতীয় পরিচয়পত্র (NID) নম্বর *').isVisible(), 'Mobile Bengali preboarding labels did not render.');
+  await preboardingPage.getByRole('button', { name: 'পরিচয়ের তথ্য সংরক্ষণ করুন', exact: true }).click();
   try { await preboardingPage.getByRole('alert').waitFor({ timeout: 5000 }); }
   catch { throw new Error(`Missing identity validation response. UI=${(await preboardingPage.locator('body').innerText()).slice(0, 2000)} RPC=${JSON.stringify(preboardingRpcResponses)} browser errors=${browserErrors.join(';') || 'none'}`); }
-  assert((await preboardingPage.getByRole('alert').innerText()).includes('Complete each required field'), 'Preboarding accepted an incomplete identity section.');
+  assert((await preboardingPage.getByRole('alert').innerText()).includes('প্রতিটি আবশ্যিক ঘর পূরণ করুন'), 'Bengali preboarding accepted an incomplete identity section or did not localize its error.');
+  await preboardingPage.reload({ waitUntil: 'domcontentloaded' });
+  await preboardingPage.getByRole('heading', { name: 'প্রাক-যোগদান ও কর্মী রূপান্তর', exact: true }).waitFor({ timeout: 20000 });
+  await preboardingPage.getByRole('button', { name: 'ইংরেজিতে পরিবর্তন করুন', exact: true }).click();
+  await preboardingPage.getByRole('heading', { name: 'Preboarding & Employee Transition', exact: true }).waitFor({ timeout: 20000 });
+  assert(await preboardingPage.getByLabel(/National ID/).isVisible(), 'Candidate locale was not recoverable after refreshing the Bengali preboarding page.');
   await preboardingPage.getByLabel(/National ID/).fill('NID-C1-A-001');
   await preboardingPage.getByLabel(/Date of Birth/).fill('1992-03-14');
   await preboardingPage.getByLabel(/Nationality/).fill('Bangladeshi');
