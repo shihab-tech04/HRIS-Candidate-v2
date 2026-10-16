@@ -1,0 +1,15 @@
+{
+  "schema": "product-integrity/1",
+  "product": "Synesis HRIS Candidate Portal",
+  "sourceOfApproval": "Original CA01-CA21 applicant login/application/status requirement; HRIS deep audit 2026-10-14",
+  "checks": [
+    {"id":"CAND-01-no-public-only-final", "path":".github/workflows/release-preview.yml", "op":"not_contains", "text":"VITE_CANDIDATE_PUBLIC_ONLY: 'true'", "enforcement":"release", "reason":"Final Candidate release must expose authorized account/application journeys, not only vacancies", "approvalReference":"User: candidate must log in to apply and see status; HRIS deep audit"},
+    {"id":"CAND-02-permalink-aware-navigation", "path":"src/App.tsx", "op":"contains", "text":"parseCandidateRoute", "enforcement":"release", "reason":"Shared job/application links and browser back/refresh must resolve reliably", "approvalReference":"Existing Candidate journey and URL-routing recovery audit"}
+  ],
+  "requiredEvidence": [
+    {"id":"candidate-full-journey", "description":"Published candidate sign-in -> apply -> status -> interview -> offer -> preboarding accepted", "status":"NOT_VERIFIED", "reference":"Candidate repo development acceptance; production public-only release"},
+    {"id":"candidate-to-employee", "description":"Cross-app HR review and authorized employee activation integration accepted", "status":"BLOCKED", "reference":"HRIS master phase 07 and October 14 checkpoint"},
+    {"id":"candidate-design-baseline", "description":"Approved Candidate Figma comparison in desktop and mobile EN/BN", "status":"NOT_VERIFIED", "reference":"docs/candidate/C1_UX_RESPONSIVE_AUDIT.md"},
+    {"id":"candidate-production-sha", "description":"Published Candidate build SHA/config verified against accepted source", "status":"NOT_VERIFIED", "reference":"main 1c04786 vs dev 0a90462 at 2026-10-14"}
+  ]
+}
