@@ -54,7 +54,9 @@ const tenantB = '33333333-3333-4333-8333-333333333333';
 const tenantToday = psql("SELECT (now() AT TIME ZONE 'Asia/Dhaka')::date::text").trim();
 const jobId = randomUUID();
 const otherTenantJobId = randomUUID();
+const withdrawalJobId = randomUUID();
 const foreignApplicationId = randomUUID();
+const withdrawalApplicationId = randomUUID();
 const foreignOfferId = randomUUID();
 const password = `candidate-apply-${randomUUID()}`;
 const users = [
@@ -128,6 +130,7 @@ async function cleanupStaleTestJobs() {
   const ids = rows.data.filter(row =>
     (row.title === 'Senior Systems Engineer' && /^C1-[0-9a-f]{8}$/i.test(row.reference_number || ''))
     || (row.title === 'Other Tenant Role' && /^C1-X-[0-9a-f]{8}$/i.test(row.reference_number || ''))
+    || (row.title === 'Candidate Withdrawal Role' && /^C1-W-[0-9a-f]{8}$/i.test(row.reference_number || ''))
   ).map(row => row.id);
   if (ids.length) {
     const applications = await admin.from('job_applications').select('id').in('job_id', ids);
@@ -175,6 +178,7 @@ const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261013052128_hris_candidate_c1_revoke_direct_table_access.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013221500_hris_candidate_interview_journey.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013170556_hris_candidate_assessment_journey.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261016190000_candidate_application_withdrawal.sql'),
 ];
 for (const migration of migrationPaths) readFileSync(migration, 'utf8');
 
@@ -247,6 +251,14 @@ try {
     required_documents: [], screening_questions: [],
   });
   if (otherJob.error) throw otherJob.error;
+
+  const withdrawalJob = await admin.from('jobs').insert({
+    id: withdrawalJobId, tenant_id: tenantB, reference_number: `C1-W-${withdrawalJobId.slice(0, 8)}`,
+    title: 'Candidate Withdrawal Role', department_name: 'Engineering', workplace_type: 'Remote',
+    employment_type: 'Full-time', status: 'published', is_published: true, is_active: true,
+    required_documents: [], screening_questions: [],
+  });
+  if (withdrawalJob.error) throw withdrawalJob.error;
 
   for (const user of users) {
     const created = await admin.auth.admin.createUser({
@@ -353,6 +365,43 @@ try {
     candidate_submitted_at: new Date().toISOString(),
   });
   if (foreignHandoff.error) throw foreignHandoff.error;
+
+  const withdrawalApplication = await admin.from('job_applications').insert({
+    id: withdrawalApplicationId, tenant_id: tenantB, job_id: withdrawalJobId,
+    candidate_user_id: users[1].id, full_name: users[1].name, email: users[1].email,
+    stage: 'screening', status_note: null,
+    applied_at: new Date(Date.now() + 1000).toISOString(), updated_at: new Date().toISOString(),
+    application_data: { answers: [], declarations: { accuracyCertified: true, recruitmentDataConsent: true } },
+  });
+  if (withdrawalApplication.error) throw withdrawalApplication.error;
+  const withdrawalHistory = await admin.from('candidate_application_stage_history').insert([
+    { id: randomUUID(), application_id: withdrawalApplicationId, stage: 'applied', note: 'Application submitted.', actor_type: 'candidate', actor_user_id: users[1].id },
+    { id: randomUUID(), application_id: withdrawalApplicationId, stage: 'screening', note: 'Private recruiter discussion.', actor_type: 'recruitment', actor_user_id: staff[2].id },
+  ]);
+  if (withdrawalHistory.error) throw withdrawalHistory.error;
+
+  const candidateCannotWithdrawOtherTenant = await users[0].client.rpc('candidate_withdraw_application', {
+    p_application_id: withdrawalApplicationId, p_reason: 'Accepted another job offer',
+  });
+  assert(candidateCannotWithdrawOtherTenant.error?.code === 'P0002',
+    'A candidate from another tenant could identify or withdraw this application.');
+  const anonymousWithdrawal = await anon.rpc('candidate_withdraw_application', {
+    p_application_id: withdrawalApplicationId, p_reason: 'Accepted another job offer',
+  });
+  assert(anonymousWithdrawal.error?.code === '42501', 'Anonymous users could withdraw candidate applications.');
+  const invalidWithdrawalReason = await users[1].client.rpc('candidate_withdraw_application', {
+    p_application_id: withdrawalApplicationId, p_reason: 'Unlisted reason',
+  });
+  assert(invalidWithdrawalReason.error?.code === '22023', 'The withdrawal RPC accepted a reason outside the current form choices.');
+  const acceptedOfferWithdrawal = await users[1].client.rpc('candidate_withdraw_application', {
+    p_application_id: foreignApplicationId, p_reason: 'Accepted another job offer',
+  });
+  assert(acceptedOfferWithdrawal.error?.code === '22023', 'A candidate could withdraw an application with an accepted offer.');
+  const unchangedWithdrawalTarget = await admin.from('job_applications').select('stage,status_note')
+    .eq('id', withdrawalApplicationId).single();
+  assert(!unchangedWithdrawalTarget.error && unchangedWithdrawalTarget.data.stage === 'screening'
+    && unchangedWithdrawalTarget.data.status_note === null,
+  'A denied withdrawal changed the other tenant application.');
 
   const managerAccessReads = await Promise.all([
     staff[0].client.from('tenant_memberships').select('tenant_id,role,status').eq('user_id', staff[0].id),
@@ -850,6 +899,116 @@ try {
     .eq('application_id', application.id);
   assert(sensitiveStageHistory.error?.code === '42501',
     `Candidate direct read of recruiter notes/actor identifiers was not denied: ${JSON.stringify(sensitiveStageHistory.error || sensitiveStageHistory.data)}`);
+
+  const withdrawalContext = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const withdrawalPage = await withdrawalContext.newPage();
+  withdrawalPage.on('pageerror', error => browserErrors.push(error.message));
+  await withdrawalPage.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
+    storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[1].session,
+  });
+  await withdrawalPage.goto(`http://127.0.0.1:${webPort}/?view=applications`, { waitUntil: 'domcontentloaded' });
+  await withdrawalPage.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
+  const withdrawalCard = withdrawalPage.getByRole('button', { name: /Candidate Withdrawal Role/ });
+  await withdrawalCard.waitFor({ state: 'visible' });
+  const acceptedOfferCard = withdrawalPage.getByRole('button', { name: /Other Tenant Role/ });
+  await acceptedOfferCard.click();
+  assert(await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).count() === 0,
+    'The Candidate UI offered withdrawal after an accepted offer.');
+  await withdrawalCard.click();
+  await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).waitFor();
+  await withdrawalPage.getByRole('button', { name: 'Switch to Bengali' }).click();
+  await withdrawalPage.getByRole('heading', { name: 'আমার আবেদন' }).waitFor({ timeout: 20000 });
+  await withdrawalPage.getByRole('button', { name: 'আবেদন প্রত্যাহার করুন', exact: true }).click();
+  const withdrawalDialog = withdrawalPage.getByRole('dialog', { name: 'আবেদন প্রত্যাহার করুন' });
+  const confirmWithdrawal = withdrawalDialog.getByRole('button', { name: 'প্রত্যাহার নিশ্চিত করুন', exact: true });
+  assert(await confirmWithdrawal.isDisabled(), 'The Candidate could submit withdrawal without selecting a reason.');
+  await withdrawalDialog.getByLabel('প্রত্যাহারের কারণ *').selectOption('Accepted another job offer');
+  await withdrawalDialog.getByRole('button', { name: 'বাতিল', exact: true }).click();
+  await withdrawalDialog.waitFor({ state: 'detached' });
+  const afterCancel = await admin.from('job_applications').select('stage,status_note')
+    .eq('id', withdrawalApplicationId).single();
+  assert(!afterCancel.error && afterCancel.data.stage === 'screening' && afterCancel.data.status_note === null,
+    'Cancelling the withdrawal dialog changed persisted application state.');
+
+  let withdrawalRpcCalls = 0;
+  await withdrawalPage.route('**/rest/v1/rpc/candidate_withdraw_application', async route => {
+    withdrawalRpcCalls++;
+    if (withdrawalRpcCalls === 1) {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ code: 'XX000', message: 'Synthetic temporary outage.' }) });
+      return;
+    }
+    await route.continue();
+  });
+  await withdrawalPage.getByRole('button', { name: 'আবেদন প্রত্যাহার করুন', exact: true }).click();
+  const retryDialog = withdrawalPage.getByRole('dialog', { name: 'আবেদন প্রত্যাহার করুন' });
+  await retryDialog.getByLabel('প্রত্যাহারের কারণ *').selectOption('Accepted another job offer');
+  const bengaliConfirm = retryDialog.getByRole('button', { name: 'প্রত্যাহার নিশ্চিত করুন', exact: true });
+  await bengaliConfirm.click();
+  await retryDialog.getByRole('alert').getByText('আবেদন প্রত্যাহার করা যায়নি। আবার চেষ্টা করুন।').waitFor({ timeout: 10000 });
+  const afterFailedRequest = await admin.from('job_applications').select('stage,status_note')
+    .eq('id', withdrawalApplicationId).single();
+  const historyAfterFailedRequest = await admin.from('candidate_application_stage_history').select('id')
+    .eq('application_id', withdrawalApplicationId);
+  assert(!afterFailedRequest.error && afterFailedRequest.data.stage === 'screening'
+    && afterFailedRequest.data.status_note === null && !historyAfterFailedRequest.error
+    && historyAfterFailedRequest.data.length === 2,
+  'A failed withdrawal request changed application state or appended a history event.');
+  await bengaliConfirm.click();
+  await withdrawalPage.getByText('আবেদন প্রত্যাহার করা হয়েছে', { exact: true }).first().waitFor({ timeout: 20000 });
+  await withdrawalPage.getByRole('region', { name: 'আবেদনের ইতিহাস' })
+    .getByText('অন্য চাকরির প্রস্তাব গ্রহণ করেছি', { exact: true }).waitFor({ timeout: 20000 });
+  assert(withdrawalRpcCalls === 2, `Expected one recoverable failure followed by one successful RPC; received ${withdrawalRpcCalls}.`);
+
+  const persistedWithdrawal = await admin.from('job_applications').select('stage,status_note,tenant_id,candidate_user_id')
+    .eq('id', withdrawalApplicationId).single();
+  const persistedWithdrawalHistory = await admin.from('candidate_application_stage_history')
+    .select('id,stage,note,actor_type,actor_user_id').eq('application_id', withdrawalApplicationId).order('created_at');
+  assert(!persistedWithdrawal.error && persistedWithdrawal.data.stage === 'withdrawn'
+    && persistedWithdrawal.data.status_note === 'Accepted another job offer'
+    && persistedWithdrawal.data.tenant_id === tenantB && persistedWithdrawal.data.candidate_user_id === users[1].id
+    && !persistedWithdrawalHistory.error && persistedWithdrawalHistory.data.length === 3
+    && persistedWithdrawalHistory.data[2].stage === 'withdrawn'
+    && persistedWithdrawalHistory.data[2].note === 'Accepted another job offer'
+    && persistedWithdrawalHistory.data[2].actor_type === 'candidate'
+    && persistedWithdrawalHistory.data[2].actor_user_id === users[1].id,
+  `Candidate withdrawal did not persist one owner-scoped reason and history event: ${JSON.stringify(persistedWithdrawal.error || persistedWithdrawalHistory.error || { application: persistedWithdrawal.data, history: persistedWithdrawalHistory.data })}`);
+  const duplicateWithdrawal = await users[1].client.rpc('candidate_withdraw_application', {
+    p_application_id: withdrawalApplicationId, p_reason: 'Accepted another job offer',
+  });
+  const historyAfterDuplicate = await admin.from('candidate_application_stage_history').select('id')
+    .eq('application_id', withdrawalApplicationId).eq('stage', 'withdrawn');
+  assert(!duplicateWithdrawal.error && duplicateWithdrawal.data?.changed === false
+    && !historyAfterDuplicate.error && historyAfterDuplicate.data.length === 1,
+  'A repeated withdrawal request changed the original reason or duplicated the history event.');
+  const candidateWithdrawalContext = await users[1].client.rpc('candidate_get_recruitment_context');
+  const safeWithdrawalApplication = candidateWithdrawalContext.data?.applications?.find(row => row.id === withdrawalApplicationId);
+  assert(!candidateWithdrawalContext.error && safeWithdrawalApplication?.stage === 'withdrawn'
+    && safeWithdrawalApplication.status_note === 'Accepted another job offer'
+    && safeWithdrawalApplication.stage_history?.length === 3
+    && safeWithdrawalApplication.stage_history[2].note === 'Accepted another job offer'
+    && safeWithdrawalApplication.stage_history.every(row => !Object.hasOwn(row, 'actor_user_id'))
+    && !JSON.stringify(candidateWithdrawalContext.data).includes('Private recruiter discussion.'),
+  'The refreshed candidate context omitted the withdrawal event or exposed the recruiter note/actor.');
+  const directWithdrawalHistory = await users[1].client.from('candidate_application_stage_history')
+    .select('note,actor_user_id').eq('application_id', withdrawalApplicationId);
+  assert(directWithdrawalHistory.error?.code === '42501', 'The Candidate could directly read withdrawal actors or private history fields.');
+
+  await withdrawalPage.reload({ waitUntil: 'domcontentloaded' });
+  await withdrawalPage.getByRole('heading', { name: 'আমার আবেদন' }).waitFor({ timeout: 20000 });
+  await withdrawalPage.getByRole('region', { name: 'আবেদনের ইতিহাস' })
+    .getByText('অন্য চাকরির প্রস্তাব গ্রহণ করেছি', { exact: true }).waitFor({ timeout: 20000 });
+  assert(!(await withdrawalPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The Candidate mobile withdrawal history overflows the viewport.');
+  await withdrawalPage.setViewportSize({ width: 1280, height: 800 });
+  await withdrawalPage.reload({ waitUntil: 'domcontentloaded' });
+  const desktopWithdrawalCard = withdrawalPage.getByRole('button', { name: /Candidate Withdrawal Role/ });
+  if (await desktopWithdrawalCard.getAttribute('aria-expanded') !== 'true') await desktopWithdrawalCard.click();
+  assert(await withdrawalPage.getByRole('button', { name: 'আবেদন প্রত্যাহার করুন', exact: true }).count() === 0,
+    'The Candidate UI still offered withdrawal for an already withdrawn application.');
+  assert(!(await withdrawalPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The Candidate desktop withdrawal history overflows the viewport.');
+  await withdrawalContext.close();
+
   await page.getByText('Application History', { exact: true }).waitFor();
   await page.getByRole('region', { name: 'Application history' }).getByText('Application Submitted', { exact: true }).waitFor();
   const initialApplicationTimeline = await page.locator('body').innerText();
@@ -1593,7 +1752,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history stage_history_acl=rls+public-anon-authenticated-denied+service-role-preserved assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history withdrawal=owner+tenant+closed-stage+allowlisted-reason+idempotent+audited-history+retry+refresh+ENBN assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } catch (cause) {
   console.error('CANDIDATE_APPLICATION_LOCAL_E2E ERROR:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
   throw cause;
@@ -1624,9 +1783,3 @@ try {
       console.error('CANDIDATE_APPLICATION_LOCAL_E2E CLEANUP_ERROR stale_jobs:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
       throw cause;
     }
-  }
-  const usersAtEnd = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (usersAtEnd.error || usersAtEnd.data.users.length !== 0) {
-    throw usersAtEnd.error || new Error('Local Auth cleanup did not return to the empty starting state.');
-  }
-}

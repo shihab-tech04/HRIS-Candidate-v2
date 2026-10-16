@@ -25,6 +25,10 @@ interface ApplicationsPageProps {
   selectedAppId?: string;
 }
 
+const withdrawalClosedStages = new Set([
+  'withdrawn', 'rejected', 'offer', 'offer_extended', 'offer_accepted', 'offer_declined', 'hired',
+]);
+
 export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
   onNavigate,
   selectedAppId
@@ -225,6 +229,8 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
               const isExpanded = expandedAppId === app.id;
               const isWithdrawn = app.status === 'withdrawn';
               const isRejected = app.status === 'rejected';
+              const normalizedStage = (app.status || '').trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+              const canWithdraw = !withdrawalClosedStages.has(normalizedStage);
 
               return (
                 <div
@@ -377,7 +383,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
                           </button>
                         </div>
 
-                        {!isWithdrawn && !isRejected && (
+                        {canWithdraw && (
                           <button
                             type="button"
                             onClick={() => openWithdrawalDialog(app)}
@@ -455,7 +461,4 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
             </div>
           </div>
         )}
-      </div>
-    </div>
-  );
-};
+      
