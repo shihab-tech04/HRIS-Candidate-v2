@@ -87,5 +87,5 @@ test('offer and preboarding interface copy is bilingual while persisted terms an
   assert.equal(translateCandidateText('Department: {department} · Reference ID: {reference}', 'bn', { department: 'Research', reference: 'O-17' }), 'বিভাগ: Research · রেফারেন্স আইডি: O-17');
   assert.equal(translateCandidateText('Complete each required field before saving this step.', 'bn'), 'সংরক্ষণ করার আগে প্রতিটি আবশ্যিক ঘর পূরণ করুন।');
   assert.equal(translateCandidateText('Complete each required field: {fields}', 'bn', { fields: 'national_id, date_of_birth' }), 'প্রতিটি আবশ্যিক ঘর পূরণ করুন: national_id, date_of_birth');
-  assert.match(preboarding, /message === 'Complete each required field before saving this step\\.'/);
+  assert.match(preboarding, /message === 'Complete each required field before saving this step\.'/);
 });
