@@ -1478,12 +1478,13 @@ try {
   await activationCard.getByText(users[0].email, { exact: true }).waitFor({ timeout: 20000 });
   const employeeNumber = activationArguments.p_employee_number;
   await activationCard.getByRole('textbox', { name: 'Employee number', exact: true }).fill(employeeNumber);
-  await activationCard.getByRole('textbox', { name: 'Confirm joining date', exact: true }).fill(issueArguments.p_proposed_joining_date);
+  await activationCard.getByRole('textbox', { name: 'Confirm joining date', exact: true }).fill(tenantToday);
   await activationCard.getByRole('checkbox', { name: 'I verified the submitted details and confirm the employee number and joining date.' }).check();
   await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).click();
   await activationCard.getByRole('alert').getByText('The active Employee role is not configured for this organization. Configure it before activation.').waitFor({ timeout: 10000 });
   const configuredEmployeeRole = await admin.from('roles').insert({ id: 'qa_candidate_employee', name: 'Employee', active: true });
   if (configuredEmployeeRole.error) throw configuredEmployeeRole.error;
+  await activationCard.getByRole('textbox', { name: 'Confirm joining date', exact: true }).fill(issueArguments.p_proposed_joining_date);
   await activationCard.getByRole('button', { name: 'Activate employee', exact: true }).click();
   await activationCard.getByRole('alert').getByText('Activation is available on or after the confirmed joining date.').waitFor({ timeout: 10000 });
   assert(!(await employeeManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop preboarding review overflows the viewport.');
