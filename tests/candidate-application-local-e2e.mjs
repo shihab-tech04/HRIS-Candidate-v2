@@ -1473,6 +1473,7 @@ try {
   const desktopHistory = page.locator(`#application-history-${application.id}`);
   await desktopHistory.getByText('Interview Scheduled', { exact: true }).first().waitFor({ timeout: 20000 });
   await desktopHistory.getByText('Offer Extended', { exact: true }).first().waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: /Interview Completion Status Role/ }).click();
   const desktopInterviewCompletedTimeline = page.locator(`#application-history-${interviewCompletedApplicationId}`);
   await desktopInterviewCompletedTimeline.getByText('Interview Under Evaluation', { exact: true }).waitFor({ timeout: 20000 });
   assert(!(await desktopInterviewCompletedTimeline.innerText()).includes('Private completed-interview recruiter note.'),
