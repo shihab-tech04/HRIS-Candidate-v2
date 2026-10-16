@@ -1271,7 +1271,9 @@ try {
   });
   await preboardingPage.addInitScript(({ storageKey, session }) => {
     localStorage.setItem(storageKey, JSON.stringify(session));
-    localStorage.setItem('synesis-candidate-locale-v1', 'bn');
+    if (localStorage.getItem('synesis-candidate-locale-v1') === null) {
+      localStorage.setItem('synesis-candidate-locale-v1', 'bn');
+    }
   }, {
     storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
   });
