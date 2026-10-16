@@ -92,4 +92,61 @@ test('application history and withdrawal recovery use the shared EN/BN locale an
   assert.match(applicationsPage, /date\.toLocaleString\(locale === 'bn' \? 'bn-BD' : 'en-US'\)/);
   assert.match(applicationsPage, /date\.toLocaleDateString\(locale === 'bn' \? 'bn-BD' : 'en-US'\)/);
   assert.match(applicationsPage, /stageLabel\(app\.status \|\| app\.candidate_visible_status\)/);
-  assert.match(applicationsPage, /role="alert"[^>]*>\{t\('Your applicatio
+  assert.match(applicationsPage, /role="alert"[^>]*>\{t\('Your applications could not be loaded\. Please try again\.'\)\}/);
+  assert.match(applicationsPage, /<option value="Accepted another job offer">\{t\('Accepted another job offer'\)\}<\/option>/);
+  assert.match(applicationsPage, /<option value="Location \/ Commute constraints">\{t\('Location \/ Commute constraints'\)\}<\/option>/);
+  assert.match(applicationsPage, /<option value="Compensation expectations mismatch">\{t\('Compensation expectations mismatch'\)\}<\/option>/);
+  assert.equal(translateCandidateText('My Applications', 'bn'), 'আমার আবেদন');
+  assert.equal(translateCandidateText('Interview Scheduled', 'bn'), 'সাক্ষাৎকার নির্ধারিত হয়েছে');
+  assert.equal(translateCandidateText('Submitted {date}', 'bn', { date: '১৫ অক্টোবর ২০২৬' }), '১৫ অক্টোবর ২০২৬-এ জমা');
+});
+
+test('Candidate withdrawal is server-persisted, excludes closed offers, and has real Auth/Postgres recovery coverage', () => {
+  const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
+  assert.match(api, /rpc\('candidate_withdraw_application'/);
+  assert.match(applicationsPage, /withdrawalClosedStages = new Set\(\[[\s\S]*?'offer_accepted'[\s\S]*?'hired'/);
+  assert.match(applicationsPage, /\{canWithdraw && \(/);
+  assert.match(localJourney, /20261016190000_candidate_application_withdrawal\.sql/);
+  assert.match(localJourney, /candidateCannotWithdrawOtherTenant[\s\S]*?anonymousWithdrawal[\s\S]*?invalidWithdrawalReason[\s\S]*?acceptedOfferWithdrawal/);
+  assert.match(localJourney, /withdrawal=owner\+tenant\+closed-stage\+allowlisted-reason\+idempotent\+audited-history\+retry\+refresh\+ENBN/);
+  assert.match(localJourney, /setViewportSize\(\{ width: 375, height: 812 \}\)[\s\S]*?setViewportSize\(\{ width: 1280, height: 800 \}\)/);
+});
+
+test('application withdrawal dialog has labelled modal semantics, keyboard containment and recoverable errors', () => {
+  const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
+  assert.match(applicationsPage, /role="dialog" aria-modal="true" aria-labelledby="withdraw-application-title" aria-describedby="withdraw-application-description"/);
+  assert.match(applicationsPage, /window\.requestAnimationFrame\(\(\) => withdrawalDialogRef\.current\?\.focus\(\)\)/);
+  assert.match(applicationsPage, /event\.key === 'Escape'[\s\S]*?closeWithdrawalDialog\(\)/);
+  assert.match(applicationsPage, /event\.shiftKey[\s\S]*?last\.focus\(\)/);
+  assert.match(applicationsPage, /previouslyFocused\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(applicationsPage, /catch \{[\s\S]*?setActionError\(t\('We could not withdraw your application\. Please try again\.'\)\)/);
+  assert.match(applicationsPage, /disabled=\{withdrawing\}[\s\S]*?\{t\('Cancel'\)\}/);
+});
+
+test('fresh local application journey creates its schema before cleaning stale test jobs', () => {
+  const baseSchemaAt = localJourney.indexOf("psql(readFileSync(path.join(mainRoot, 'tests/sql/candidate-c1/tenant-fixture.sql'), 'utf8'))");
+  const fixtureAt = localJourney.indexOf("psql(readFileSync(path.join(candidateRoot, 'tests/candidate-application-local-fixture.sql'), 'utf8'))");
+  const migrationAt = localJourney.indexOf('for (const migration of migrationPaths) psql(readFileSync(migration, \'utf8\'))');
+  const cleanupAt = localJourney.indexOf('await cleanupStaleTestJobs();', migrationAt);
+  const collisionCheckAt = localJourney.indexOf('SELECT count(*) FROM public.jobs', cleanupAt);
+  const jobInsertAt = localJourney.indexOf('const testJob = {', cleanupAt);
+  assert.ok(baseSchemaAt >= 0 && baseSchemaAt < fixtureAt, 'Shared synthetic candidate schema loads before local workflow fixtures.');
+  assert.ok(fixtureAt >= 0 && fixtureAt < migrationAt, 'Disposable workflow fixture loads before product migrations.');
+  assert.ok(migrationAt >= 0 && migrationAt < cleanupAt, 'Product schema loads before stale-job cleanup.');
+  assert.ok(cleanupAt >= 0 && cleanupAt < jobInsertAt, 'Stale local fixtures are removed before the new local job is inserted.');
+  assert.ok(collisionCheckAt > cleanupAt && collisionCheckAt < jobInsertAt, 'Job collision checks run only after the disposable schema is initialized.');
+  assert.doesNotMatch(localJourney.slice(0, fixtureAt), /await cleanupStaleTestJobs\(\)/,
+    'No table cleanup runs against an uninitialized database.');
+  assert.doesNotMatch(localJourney.slice(0, baseSchemaAt), /SELECT count\(\) FROM public\.jobs/,
+    'No job-table query runs before the disposable schema is initialized.');
+  assert.match(localJourney, /20261014150000_hris_candidate_initial_application_history\.sql/,
+    'The local Auth/Postgres application journey applies the persisted-history source fix.');
+});
+
+test('local preboarding tenant policy is created only after its permission helper exists', () => {
+  const helperAt = localFixture.indexOf('CREATE OR REPLACE FUNCTION public.has_tenant_permission');
+  const policyAt = localFixture.indexOf('CREATE POLICY c1_tenant_membership_read');
+  assert.ok(helperAt >= 0 && helperAt < policyAt, 'Tenant helper is defined before the policy calls it.');
+  assert.match(localFixture, /ON CONFLICT \(slug\) DO UPDATE[\s\S]+timezone=EXCLUDED\.timezone/,
+    'The disposable tenant fixture reapplies its declared organization timezone on reruns.');
+});

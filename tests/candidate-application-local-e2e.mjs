@@ -1783,3 +1783,9 @@ try {
       console.error('CANDIDATE_APPLICATION_LOCAL_E2E CLEANUP_ERROR stale_jobs:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
       throw cause;
     }
+  }
+  const usersAtEnd = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (usersAtEnd.error || usersAtEnd.data.users.length !== 0) {
+    throw usersAtEnd.error || new Error('Local Auth cleanup did not return to the empty starting state.');
+  }
+}

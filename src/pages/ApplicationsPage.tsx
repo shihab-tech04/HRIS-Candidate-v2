@@ -461,4 +461,7 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({
             </div>
           </div>
         )}
-      
+      </div>
+    </div>
+  );
+};
