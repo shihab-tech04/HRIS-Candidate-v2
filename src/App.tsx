@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/common/Navbar';
 import { Footer } from './components/common/Footer';
@@ -29,12 +29,29 @@ import { ProfilePage } from './pages/ProfilePage';
 import { SavedJobsPage } from './pages/SavedJobsPage';
 import VerifiedSavedJobsPage from './pages/VerifiedSavedJobsPage';
 import { AboutPage } from './pages/AboutPage';
+import { candidateRouteUrl, parseCandidateRoute } from './lib/candidateRouting';
 
 function MainAppContent() {
   const { user } = useAuth();
-  const [currentTab, setCurrentTab] = useState<string>('jobs');
-  const [selectedJobId, setSelectedJobId] = useState<string>('job-synesis-001');
-  const [selectedAppId, setSelectedAppId] = useState<string | undefined>(undefined);
+  const [route, setRoute] = useState(() => parseCandidateRoute(window.location.search));
+  const currentTab = route.tab;
+  const selectedJobId = route.jobId || 'job-synesis-001';
+  const selectedAppId = route.applicationId;
+
+  useEffect(() => {
+    const restore = () => setRoute(parseCandidateRoute(window.location.search));
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, []);
+
+  const navigate = (tab: string, jobId?: string, applicationId?: string) => {
+    const next = { tab, jobId, applicationId };
+    const nextUrl = candidateRouteUrl(window.location.href, next);
+    if (nextUrl !== window.location.pathname + window.location.search + window.location.hash) {
+      window.history.pushState(null, '', nextUrl);
+    }
+    setRoute(parseCandidateRoute(new URL(nextUrl, window.location.origin).search));
+  };
 
   // Modals
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -46,24 +63,21 @@ function MainAppContent() {
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
   const handleSelectJob = (jobId: string) => {
-    setSelectedJobId(jobId);
-    setCurrentTab('job-details');
+    navigate('job-details', jobId);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleApplyJob = (jobId: string) => {
-    setSelectedJobId(jobId);
     if (!user) {
       setAuthReturnNotice('Sign in or register to begin your job application.');
       setPendingAction(() => () => {
-        setSelectedJobId(jobId);
-        setCurrentTab('apply');
+        navigate('apply', jobId);
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
       setAuthModalOpen(true);
       return;
     }
-    setCurrentTab('apply');
+    navigate('apply', jobId);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -81,8 +95,7 @@ function MainAppContent() {
   };
 
   const handleApplicationSuccess = (applicationId: string) => {
-    setSelectedAppId(applicationId);
-    setCurrentTab('applications');
+    navigate('applications', undefined, applicationId);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -90,7 +103,7 @@ function MainAppContent() {
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans">
       <Navbar
         currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
+        setCurrentTab={navigate}
         openAuthModal={() => handleOpenAuth()}
         openConfigModal={() => setConfigModalOpen(true)}
       />
@@ -107,60 +120,59 @@ function MainAppContent() {
         {currentTab === 'job-details' && (DEMO_MODE ?
           <JobDetailsPage
             jobId={selectedJobId}
-            onBack={() => setCurrentTab('jobs')}
+            onBack={() => navigate('jobs')}
             onApply={handleApplyJob}
             onOpenAuth={(notice) => handleOpenAuth(notice)}
-          /> : <VerifiedJobDetails jobId={selectedJobId} onBack={() => setCurrentTab('jobs')} onApply={handleApplyJob} onOpenAuth={(notice) => handleOpenAuth(notice)} />
+          /> : <VerifiedJobDetails jobId={selectedJobId} onBack={() => navigate('jobs')} onApply={handleApplyJob} onOpenAuth={(notice) => handleOpenAuth(notice)} />
         )}
 
         {currentTab === 'apply' && (DEMO_MODE ?
           <ApplyPage jobId={selectedJobId}
-            onBack={() => setCurrentTab('job-details')}
+            onBack={() => navigate('job-details', selectedJobId)}
             onApplicationSuccess={handleApplicationSuccess} /> :
           <VerifiedApplyPage jobId={selectedJobId}
-            onBack={() => setCurrentTab('job-details')}
+            onBack={() => navigate('job-details', selectedJobId)}
             onApplicationSuccess={handleApplicationSuccess} />
         )}
 
         {currentTab === 'dashboard' && (
           <DashboardPage
-            onNavigate={(tab) => setCurrentTab(tab)}
+            onNavigate={navigate}
             onSelectApplication={(appId) => {
-              setSelectedAppId(appId);
-              setCurrentTab('applications');
+              navigate('applications', undefined, appId);
             }}
           />
         )}
 
         {currentTab === 'applications' && (
           <ApplicationsPage
-            onNavigate={(tab) => setCurrentTab(tab)}
+            onNavigate={navigate}
             selectedAppId={selectedAppId}
           />
         )}
 
         {currentTab === 'cv-builder' && (
-          <CVBuilderPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <CVBuilderPage onNavigate={navigate} />
         )}
 
         {currentTab === 'interviews' && (
-          <InterviewsPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <InterviewsPage onNavigate={navigate} />
         )}
 
         {currentTab === 'tasks' && (
-          <TasksPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <TasksPage onNavigate={navigate} />
         )}
 
         {currentTab === 'offers' && (
-          <OffersPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <OffersPage onNavigate={navigate} />
         )}
 
         {currentTab === 'preboarding' && (
-          <PreboardingPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <PreboardingPage onNavigate={navigate} />
         )}
 
         {currentTab === 'profile' && (
-          <ProfilePage onNavigate={(tab) => setCurrentTab(tab)} />
+          <ProfilePage onNavigate={navigate} />
         )}
 
         {currentTab === 'saved-jobs' && (DEMO_MODE ?
@@ -172,12 +184,12 @@ function MainAppContent() {
         )}
 
         {currentTab === 'about' && (
-          <AboutPage onNavigate={(tab) => setCurrentTab(tab)} />
+          <AboutPage onNavigate={navigate} />
         )}
       </main>
 
       <Footer
-        onNavigate={(tab) => setCurrentTab(tab)}
+        onNavigate={navigate}
         onOpenConfig={() => setConfigModalOpen(true)}
       />
 

@@ -1,4 +1,19 @@
 {
   "schema": "approved-ui-change/1",
-  "changes": []
+  "changes": [
+    {
+      "path": "src/App.tsx",
+      "requirement": "Preserve candidate page destinations, shared job/application links, and browser back/refresh",
+      "approvalReference": "Candidate original authenticated journey and CAND-02 permalink-aware navigation contract",
+      "approvedDesign": "Existing page, Navbar, Footer and modal components remain unchanged; route state is synchronized with the URL",
+      "forbiddenAdditions": ["No new UI controls or menu entries", "No public-only release flag change"]
+    },
+    {
+      "path": "src/lib/candidateRouting.ts",
+      "requirement": "Parse and encode the existing candidate routes safely without losing valid deep links",
+      "approvalReference": "Candidate original authenticated journey and CAND-02 permalink-aware navigation contract",
+      "approvedDesign": "Pure route-state module; no visible components or altered design tokens",
+      "forbiddenAdditions": ["No role-switching control", "No new fields"]
+    }
+  ]
 }
