@@ -1412,15 +1412,15 @@ try {
   await mainManagerPage.getByRole('heading', { name: 'Interview responses' }).waitFor({ timeout: 20000 });
   await mainManagerPage.getByText('Candidate accepted', { exact: true }).waitFor();
 
-  await mainManagerPage.getByText('Issue offer', { exact: true }).click();
-  assert(await mainManagerPage.locator('form').last().evaluate(form => !form.checkValidity()), 'Offer form did not enforce required fields before submission.');
-  await mainManagerPage.getByLabel('Offer amount').fill('165000');
-  await mainManagerPage.getByLabel('Currency code').fill('BDT');
-  await mainManagerPage.getByLabel('Pay period').selectOption('monthly');
-  await mainManagerPage.getByLabel('Proposed joining date').fill(issueArguments.p_proposed_joining_date);
-  await mainManagerPage.getByLabel('Candidate response deadline').fill(issueArguments.p_response_deadline);
-  await mainManagerPage.getByLabel('Offer terms').fill(issueArguments.p_terms);
-  await mainManagerPage.getByRole('button', { name: 'Issue offer to candidate' }).click();
+  await candidateApplicationRow.getByText('Issue offer', { exact: true }).click();
+  assert(await candidateApplicationRow.locator('form').last().evaluate(form => !form.checkValidity()), 'Offer form did not enforce required fields before submission.');
+  await candidateApplicationRow.getByLabel('Offer amount').fill('165000');
+  await candidateApplicationRow.getByLabel('Currency code').fill('BDT');
+  await candidateApplicationRow.getByLabel('Pay period').selectOption('monthly');
+  await candidateApplicationRow.getByLabel('Proposed joining date').fill(issueArguments.p_proposed_joining_date);
+  await candidateApplicationRow.getByLabel('Candidate response deadline').fill(issueArguments.p_response_deadline);
+  await candidateApplicationRow.getByLabel('Offer terms').fill(issueArguments.p_terms);
+  await candidateApplicationRow.getByRole('button', { name: 'Issue offer to candidate' }).click();
   try { await mainManagerPage.getByRole('status').filter({ hasText: 'Offer issued to the candidate.' }).waitFor({ timeout: 20000 }); }
   catch { throw new Error(`Offer issue did not complete. UI=${(await mainManagerPage.locator('body').innerText()).slice(0, 2000)} response=${JSON.stringify(offerIssueResponses)} diagnostics=${mainDiagnostics.join(';') || 'none'}`); }
   assert(!(await mainManagerPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile recruiter offer form overflows the viewport.');
