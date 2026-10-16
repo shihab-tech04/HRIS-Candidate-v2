@@ -405,7 +405,8 @@ try {
     const messageUrl = message.location().url || '';
     const intentionalSavedJobFault = (expectedSavedJobLookupFailure
       && (message.text().includes('/rest/v1/candidate_saved_jobs') || messageUrl.includes('/rest/v1/candidate_saved_jobs'))
-      && (message.text().includes('select=id') || messageUrl.includes('select=id')))
+      && (message.text().includes('select=id') || messageUrl.includes('select=id')
+        || message.text().includes('select=job_id') || messageUrl.includes('select=job_id')))
       || (expectedDetailsJobLoadFailure
         && (message.text().includes('/rest/v1/candidate_published_jobs') || messageUrl.includes('/rest/v1/candidate_published_jobs')))
       || (expectedJobAlertSaveFailure
@@ -417,7 +418,7 @@ try {
   mobilePage.on('requestfailed', request => {
     const intentionalSavedJobFault = expectedSavedJobLookupFailure
       && request.url().includes('/rest/v1/candidate_saved_jobs')
-      && request.url().includes('select=id');
+      && (request.url().includes('select=id') || request.url().includes('select=job_id'));
     const intentionalDetailsJobFault = expectedDetailsJobLoadFailure
       && request.url().includes('/rest/v1/candidate_published_jobs');
     const intentionalJobAlertFault = expectedJobAlertSaveFailure
@@ -578,6 +579,7 @@ try {
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
 
   const savedJobLookupEndpoint = /\/rest\/v1\/candidate_saved_jobs\?.*select=id/;
+  const savedJobListEndpoint = /\/rest\/v1\/candidate_saved_jobs\?.*select=job_id/;
   await mobilePage.route(savedJobLookupEndpoint, route => route.abort());
   expectedSavedJobLookupFailure = true;
   await mobilePage.getByRole('button', { name: 'Remove', exact: true }).click();
@@ -645,14 +647,14 @@ try {
   assert(await mobilePage.locator('html').getAttribute('lang') === 'bn', 'Bengali selection did not survive a full page refresh.');
 
   await mobilePage.setViewportSize({ width: 375, height: 812 });
-  await mobilePage.route(savedJobLookupEndpoint, route => route.abort());
+  await mobilePage.route(savedJobListEndpoint, route => route.abort());
   expectedSavedJobLookupFailure = true;
   expectedSavedJobLookupFailureObserved = false;
   await mobilePage.reload({ waitUntil: 'domcontentloaded' });
   const localizedSavedJobsAlert = mobilePage.getByRole('alert');
   await localizedSavedJobsAlert.getByText('সংরক্ষিত চাকরি ও সতর্কতা পাওয়া যাচ্ছে না।').waitFor({ timeout: 20000 });
   await localizedSavedJobsAlert.getByRole('button', { name: 'আবার চেষ্টা করুন' }).waitFor({ timeout: 20000 });
-  await mobilePage.unroute(savedJobLookupEndpoint);
+  await mobilePage.unroute(savedJobListEndpoint);
   assert(expectedSavedJobLookupFailureObserved, 'Bengali recovery journey did not reach the simulated saved-job read failure.');
   await localizedSavedJobsAlert.getByRole('button', { name: 'আবার চেষ্টা করুন' }).click();
   await mobilePage.getByRole('heading', { name: 'আমার সংরক্ষিত চাকরি' }).waitFor({ timeout: 20000 });
