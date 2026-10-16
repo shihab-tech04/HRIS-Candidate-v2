@@ -1239,7 +1239,7 @@ try {
     && bengaliOfferText.includes('Role: Senior Systems Engineer'),
   'Bengali offer labels did not localize or employer-entered offer terms changed.');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop Bengali candidate offer page overflows the viewport.');
-  await page.getByRole('button', { name: 'Switch to English' }).click();
+  await page.getByRole('button', { name: 'ইংরেজিতে পরিবর্তন করুন', exact: true }).click();
   await page.getByRole('button', { name: 'Offers & Preboarding', exact: true }).click();
   await page.getByRole('heading', { name: 'Employment Offers' }).waitFor({ timeout: 20000 });
   const candidateOfferPageText = await page.locator('body').innerText();
@@ -1257,7 +1257,7 @@ try {
   await page.getByRole('button', { name: 'Switch to Bengali' }).click();
   await page.getByRole('heading', { name: 'প্রাক-যোগদান ও কর্মী রূপান্তর', exact: true }).waitFor({ timeout: 20000 });
   assert(await page.getByLabel('জাতীয় পরিচয়পত্র (NID) নম্বর *').isVisible(), 'Desktop Bengali preboarding form labels did not render.');
-  await page.getByRole('button', { name: 'Switch to English' }).click();
+  await page.getByRole('button', { name: 'ইংরেজিতে পরিবর্তন করুন', exact: true }).click();
   await page.getByRole('heading', { name: 'Preboarding & Employee Transition', exact: true }).waitFor({ timeout: 20000 });
 
   const preboardingMobile = await browser.newContext({ viewport: { width: 375, height: 812 } });
