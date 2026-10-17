@@ -934,7 +934,8 @@ try {
     throw new Error(`Submission did not reach application tracking. Current page: ${(await page.locator('body').innerText()).slice(0, 1200)}`);
   }
   assert(await page.getByText('Senior Systems Engineer').count() > 0, 'Candidate did not reach the shared application tracking page.');
-  await page.getByText('Application Submitted', { exact: true }).waitFor({ timeout: 20000 });
+  await page.getByRole('region', { name: 'Application history' })
+    .getByText('Application Submitted', { exact: true }).waitFor({ timeout: 20000 });
 
   const applications = await admin.from('job_applications').select('*').eq('job_id', jobId).eq('candidate_user_id', users[0].id);
   assert(!applications.error && applications.data.length === 1, `Application did not persist exactly once: ${JSON.stringify(applications.error)}`);
