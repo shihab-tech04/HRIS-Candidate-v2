@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { adaptLiveApplication } from '../src/lib/recruitmentAdapters.ts';
 import { translateCandidateText } from '../src/lib/candidateLocale.ts';
 
@@ -8,6 +11,10 @@ const page = readFileSync(new URL('../src/pages/VerifiedApplyPage.tsx', import.m
 const api = readFileSync(new URL('../src/lib/api.ts', import.meta.url), 'utf8');
 const localJourney = readFileSync(new URL('./candidate-application-local-e2e.mjs', import.meta.url), 'utf8');
 const localFixture = readFileSync(new URL('./candidate-application-local-fixture.sql', import.meta.url), 'utf8');
+const mainRoot = process.env.HRIS_MAIN_REPO_ROOT || fileURLToPath(new URL('../../HRIS-v2', import.meta.url));
+const canonicalMatrixBytes = readFileSync(path.join(mainRoot, 'docs/programme/recovered-source/CANONICAL_USER_STORY_MATRIX.json'));
+const canonicalMatrixHash = createHash('sha256').update(canonicalMatrixBytes).digest('hex');
+const canonicalMatrix = JSON.parse(canonicalMatrixBytes.toString('utf8'));
 
 test('live application sends profile-backed contact details and verified document ids', () => {
   assert.match(page, /uploadCandidateApplicationDocument/);
@@ -18,6 +25,15 @@ test('live application sends profile-backed contact details and verified documen
   assert.match(api, /selected_cv_id:\s*payload\.cv_id/);
   assert.match(api, /document_ids:\s*payload\.document_ids\s*\|\|\s*\[\]/);
   assert.match(api, /required_document_map:\s*payload\.required_document_map\s*\|\|\s*\{\}/);
+});
+
+test('verified canonical CA14-12 source is covered by persisted Auth/Postgres application evidence', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const story = canonicalMatrix.stories.find(item => item.story_id === 'CA14-12');
+  assert.equal(story?.verbatim_requirement,
+    'As a candidate, I want the submitted application snapshot preserved even if I later edit my profile.');
+  assert.match(localJourney, /CA14-12: As a candidate, I want the submitted application snapshot preserved even if I later edit my profile\./);
+  assert.match(localJourney, /CA14-12_APPLICATION_SNAPSHOT_IMMUTABLE_AFTER_PROFILE_EDIT_PASS/);
 });
 
 test('server drafts resume application fields and document selections without contact PII', () => {

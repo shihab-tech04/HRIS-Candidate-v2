@@ -5,6 +5,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
 const candidateRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mainRoot = process.env.HRIS_MAIN_REPO_ROOT || path.resolve(candidateRoot, '../HRIS-v2');
@@ -911,6 +912,41 @@ try {
     && submittedApplication.stage_history[0].actor_type === 'candidate'
     && !Object.hasOwn(submittedApplication.stage_history[0], 'actor_user_id'),
   `Initial candidate submission history did not persist as a candidate-safe event: ${JSON.stringify(submittedContext.error || submittedApplication?.stage_history)}`);
+
+  // CA14-12: As a candidate, I want the submitted application snapshot preserved even if I later edit my profile.
+  const profileBeforeApplicationEdit = await admin.from('candidate_profiles').select('*').eq('user_id', users[0].id).single();
+  assert(!profileBeforeApplicationEdit.error, `Candidate profile snapshot could not be read before the post-submission edit: ${JSON.stringify(profileBeforeApplicationEdit.error)}`);
+  const applicationSnapshotBeforeProfileEdit = await admin.from('job_applications')
+    .select('id,tenant_id,job_id,candidate_user_id,stage,full_name,email,phone,cv_url,application_data,applied_at')
+    .eq('id', application.id).single();
+  assert(!applicationSnapshotBeforeProfileEdit.error, 'Submitted application snapshot could not be read before the profile edit.');
+  const preservedApplicationFields = ['id','tenant_id','job_id','candidate_user_id','stage','full_name','email','phone','cv_url','application_data','applied_at'];
+  const snapshotBeforeProfileEdit = Object.fromEntries(preservedApplicationFields.map(key => [key, applicationSnapshotBeforeProfileEdit.data[key]]));
+  const changedCandidateProfile = await users[0].client.rpc('candidate_update_profile', {
+    p_payload: {
+      full_name: profileBeforeApplicationEdit.data.full_name ?? '',
+      phone: profileBeforeApplicationEdit.data.phone ?? '',
+      current_location: profileBeforeApplicationEdit.data.current_location ?? '',
+      years_experience: profileBeforeApplicationEdit.data.years_experience == null ? '' : String(profileBeforeApplicationEdit.data.years_experience),
+      headline: 'Candidate A profile updated after application submission',
+      bio: profileBeforeApplicationEdit.data.bio ?? '',
+      skills: profileBeforeApplicationEdit.data.skills ?? [],
+      profile_data: profileBeforeApplicationEdit.data.profile_data ?? {},
+      onboarding_completed: profileBeforeApplicationEdit.data.onboarding_completed ?? false,
+    },
+  });
+  assert(!changedCandidateProfile.error && changedCandidateProfile.data?.headline === 'Candidate A profile updated after application submission',
+    `Candidate profile edit did not persist through the authenticated profile RPC: ${JSON.stringify(changedCandidateProfile.error)}`);
+  const applicationSnapshotAfterProfileEdit = await admin.from('job_applications')
+    .select('id,tenant_id,job_id,candidate_user_id,stage,full_name,email,phone,cv_url,application_data,applied_at')
+    .eq('id', application.id).single();
+  const snapshotAfterProfileEdit = applicationSnapshotAfterProfileEdit.data
+    ? Object.fromEntries(preservedApplicationFields.map(key => [key, applicationSnapshotAfterProfileEdit.data[key]]))
+    : null;
+  assert(!applicationSnapshotAfterProfileEdit.error
+    && isDeepStrictEqual(snapshotAfterProfileEdit, snapshotBeforeProfileEdit),
+  'Editing the candidate profile changed the already-submitted application snapshot.');
+  process.stdout.write('CA14-12_APPLICATION_SNAPSHOT_IMMUTABLE_AFTER_PROFILE_EDIT_PASS\n');
 
   const interviewCompletedApplicationInsert = await admin.from('job_applications').insert({
     id: interviewCompletedApplicationId, tenant_id: tenantA, job_id: interviewCompletedJobId,
@@ -1849,7 +1885,7 @@ try {
   await preboardingMobile.close();
   assert(browserErrors.length === 0, `Browser errors occurred: ${browserErrors.join('; ')}`);
 
-  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted candidate_application=verified+persisted-stage-history+interview_completed=visible+candidate-safe withdrawal=owner+tenant+rejected-stage+offer-stage-preserved+allowlisted-reason+idempotent+audited-history+retry+refresh+ENBN assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
+  process.stdout.write(`CANDIDATE_APPLICATION_LOCAL_E2E PASS=${checks} FAIL=0 viewports=mobile+desktop auth=local-gotrue postgres=persisted canonical_story=CA14-12_application_snapshot_preserved_after_profile_edit candidate_application=verified+persisted-stage-history+interview_completed=visible+candidate-safe withdrawal=owner+tenant+rejected-stage+offer-stage-preserved+allowlisted-reason+idempotent+audited-history+retry+refresh+ENBN assessments=assign+candidate-submit+review+tenant-scoped interviews=schedule+reschedule+candidate-acceptance+tenant-scoped preboarding=accepted-offer+4-step+refresh+submission+explicit-verification employee_activation=hr-only+employee-role+future-date-block+atomic+idempotent unauthorized-activation=5-denied c1_direct_denials=${c1DirectDenied}/196 direct-insert=denied manager_queue=tenant-scoped viewer-denied+direct-access-denied\n`);
 } catch (cause) {
   console.error('CANDIDATE_APPLICATION_LOCAL_E2E ERROR:', cause instanceof Error ? cause.stack : JSON.stringify(cause));
   throw cause;
