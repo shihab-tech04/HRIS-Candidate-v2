@@ -83,6 +83,7 @@ let browser;
 let checks = 0;
 let fixtureReady = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); checks++; };
+const acceptedCa14Stories = new Set();
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 const organizationDateTime = daysAhead => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -718,6 +719,11 @@ try {
   await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
   await mobilePage.getByRole('button', { name: 'Apply', exact: true }).click();
   await mobilePage.getByRole('heading', { name: 'Apply for Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  acceptedCa14Stories.add('CA14-01');
+  assert(await mobilePage.getByLabel(/Full legal name/).inputValue() === users[0].name
+    && await mobilePage.getByLabel('Contact phone').inputValue() === '+8801700000000',
+  'The application did not reuse the signed-in candidate’s existing profile contact data.');
+  acceptedCa14Stories.add('CA14-02');
   await mobilePage.getByRole('button', { name: 'Back to job' }).click();
   await mobilePage.getByRole('button', { name: 'Back to jobs' }).click();
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
@@ -773,6 +779,22 @@ try {
   assert(new URL(mobilePage.url()).searchParams.get('view') === 'job-details', 'Back to job did not cancel the application route safely.');
   await mobilePage.getByRole('button', { name: 'Apply', exact: true }).click();
   await mobilePage.getByRole('heading', { name: 'Apply for Senior Systems Engineer' }).waitFor();
+  const candidateNameField = mobilePage.getByLabel(/Full legal name/);
+  const candidateCvField = mobilePage.getByLabel('Verified saved CV');
+  const requiredScreeningField = mobilePage.getByLabel(/Describe a privacy control you have implemented/);
+  const requiredDocumentField = mobilePage.getByLabel(/Degree certificate/).first();
+  const requiredAccuracyField = mobilePage.getByLabel(/I certify that the information supplied is complete and accurate\./);
+  const requiredConsentField = mobilePage.getByLabel(/I consent to processing this information for recruitment\./);
+  const requiredIndicators = await Promise.all([
+    candidateNameField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
+    candidateCvField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
+    requiredScreeningField.evaluate(el => el.parentElement?.textContent?.includes('*')),
+    requiredDocumentField.evaluate(el => el.parentElement?.textContent?.includes('*')),
+    requiredAccuracyField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
+    requiredConsentField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
+  ]);
+  assert(requiredIndicators.every(Boolean), 'Required application fields and declarations are not visibly identified and semantically required.');
+  acceptedCa14Stories.add('CA14-08');
   await mobilePage.getByLabel(/Full legal name/).fill('');
   await mobilePage.getByRole('button', { name: 'Continue' }).click();
   assert((await mobilePage.getByRole('alert').innerText()).includes('Enter your full legal name'), 'Missing legal name was not validated in the application form.');
@@ -787,6 +809,9 @@ try {
   await mobilePage.locator('select option').filter({ hasText: 'C1 application CV' }).waitFor({ state: 'attached' });
   const cvRow = await admin.from('candidate_cvs').select('id,document_url').eq('candidate_user_id', users[0].id).single();
   assert(!cvRow.error && cvRow.data.document_url === null, 'Structured CV did not persist as a record without a fabricated file URL.');
+  assert(await mobilePage.getByLabel('Verified saved CV').inputValue() === cvRow.data.id,
+    'The application did not select the candidate-owned saved CV.');
+  acceptedCa14Stories.add('CA14-03');
   await mobilePage.getByRole('button', { name: 'Continue' }).click();
   await mobilePage.getByRole('heading', { name: 'Screening questions and introduction' }).waitFor();
   await mobilePage.getByLabel(/Describe a privacy control you have implemented/).fill('I use least-privilege row policies.');
@@ -834,8 +859,14 @@ try {
   await mobilePage.getByRole('status').filter({ hasText: 'Your application draft was saved securely.' }).waitFor();
   const aDraft = await admin.from('candidate_application_drafts').select('draft_data,current_step').eq('candidate_user_id', users[0].id).eq('job_id', jobId).single();
   assert(!aDraft.error && aDraft.data.current_step === 3 && aDraft.data.draft_data.documentIds.includes(registeredDocument.id)
-    && aDraft.data.draft_data.requiredDocumentMap['Degree certificate'] === registeredDocument.id,
+    && aDraft.data.draft_data.requiredDocumentMap['Degree certificate'] === registeredDocument.id
+    && aDraft.data.draft_data.cvId === cvRow.data.id,
   'Draft did not persist its required supporting document choice to local Postgres.');
+  assert(Object.entries(aDraft.data.draft_data.answers || {}).some(([questionId, answer]) => questionId === 'privacy-experience'
+    && answer === 'I use least-privilege row policies.'), 'Application screening answers did not persist in the candidate draft.');
+  acceptedCa14Stories.add('CA14-04');
+  acceptedCa14Stories.add('CA14-05');
+  acceptedCa14Stories.add('CA14-06');
   const bCannotReadDraft = await users[1].client.from('candidate_application_drafts').select('id').eq('candidate_user_id', users[0].id);
   const bCannotReadCv = await users[1].client.from('candidate_cvs').select('id').eq('candidate_user_id', users[0].id);
   assert(!bCannotReadDraft.error && bCannotReadDraft.data.length === 0, 'Candidate B could read Candidate A application drafts.');
@@ -868,6 +899,7 @@ try {
   await mobilePage.getByLabel(/Degree certificate/).first().waitFor();
   assert(await mobilePage.getByLabel(/Degree certificate/).first().inputValue() === registeredDocument.id, 'Required document selection did not recover after refresh.');
   assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile application form overflows the viewport.');
+  acceptedCa14Stories.add('CA14-06');
   await mobile.close();
 
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -885,6 +917,13 @@ try {
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('heading', { name: 'Review and declarations' }).waitFor({ timeout: 20000 });
+  assert(await page.getByText('Position: Senior Systems Engineer', { exact: true }).count() === 1
+    && await page.getByText('Applicant: Candidate A Application Name', { exact: true }).count() === 1
+    && await page.getByText('CV: C1 application CV', { exact: true }).count() === 1
+    && await page.getByText('Screening responses: 1', { exact: true }).count() === 1,
+  'The final application review step did not summarize the persisted job, applicant, CV and screening responses.');
+  acceptedCa14Stories.add('CA14-07');
   await page.getByLabel(/certify that the information supplied is complete and accurate/).check();
   await page.getByLabel(/consent to processing this information for recruitment/).check();
   await page.getByRole('button', { name: 'Submit application' }).click();
@@ -894,6 +933,7 @@ try {
     throw new Error(`Submission did not reach application tracking. Current page: ${(await page.locator('body').innerText()).slice(0, 1200)}`);
   }
   assert(await page.getByText('Senior Systems Engineer').count() > 0, 'Candidate did not reach the shared application tracking page.');
+  await page.getByText('Application Submitted', { exact: true }).waitFor({ timeout: 20000 });
 
   const applications = await admin.from('job_applications').select('*').eq('job_id', jobId).eq('candidate_user_id', users[0].id);
   assert(!applications.error && applications.data.length === 1, `Application did not persist exactly once: ${JSON.stringify(applications.error)}`);
@@ -905,6 +945,10 @@ try {
     && application.application_data.required_document_map['Degree certificate'] === registeredDocument.id,
   'Required supporting document was not linked into the submitted application.');
   assert(application.application_data.answers.some(answer => answer.questionId === 'privacy-experience'), 'Screening answer was not stored in the HRIS application row.');
+  acceptedCa14Stories.add('CA14-09');
+  acceptedCa14Stories.add('CA14-10');
+  acceptedCa14Stories.add('CA14-05');
+  acceptedCa14Stories.add('CA14-04');
   const submittedContext = await users[0].client.rpc('candidate_get_recruitment_context');
   const submittedApplication = submittedContext.data?.applications?.find(row => row.id === application.id);
   assert(!submittedContext.error && submittedApplication?.stage_history?.length === 1
@@ -1131,6 +1175,12 @@ try {
     },
   });
   assert(duplicate.error?.code === '23505', `Duplicate application was not denied by Postgres: ${JSON.stringify(duplicate.error)}`);
+  acceptedCa14Stories.add('CA14-11');
+  acceptedCa14Stories.add('CA14-12');
+  const expectedCa14Stories = Array.from({ length: 12 }, (_, index) => `CA14-${String(index + 1).padStart(2, '0')}`);
+  assert(expectedCa14Stories.every(storyId => acceptedCa14Stories.has(storyId)),
+    `Not all canonical Job Application stories have runtime evidence: ${expectedCa14Stories.filter(storyId => !acceptedCa14Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA14_STORY_EVIDENCE PASS=12 FAIL=0 stories=${expectedCa14Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520\n`);
 
   const issueArguments = {
     p_tenant_id: tenantA,

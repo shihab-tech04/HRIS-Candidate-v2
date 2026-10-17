@@ -262,7 +262,7 @@ export default function VerifiedApplyPage({ jobId, onBack, onApplicationSuccess 
       </section>}
       {step === 2 && <section className="space-y-4">
         <h2 className="font-semibold">{t('CV selection')}</h2>
-        <label className="block text-sm">{t('Verified saved CV')}
+        <label className="block text-sm">{t('Verified saved CV')} <span aria-hidden="true" className="text-rose-600">*</span>
           <select className={field+' mt-1'} required value={cvId} onChange={e=>setCvId(e.target.value)}>
             <option value="">{t('Select a CV')}</option>
             {cvs.map(cv=><option value={cv.id} key={cv.id}>{cv.title}{cv.file_url ? ` (${t('uploaded')})` : ` (${t('structured record')})`}</option>)}
@@ -338,10 +338,10 @@ export default function VerifiedApplyPage({ jobId, onBack, onApplicationSuccess 
         {phone && <p className="text-sm">{t('Contact phone: {phone}', { phone })}</p>}
         <p className="text-sm">{t('CV: {title}', { title: cvs.find(c=>c.id===cvId)?.title || t('Not selected') })}</p>
         <p className="text-sm">{t('Screening responses: {count}', { count: new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD').format(Object.keys(answers).length) })}</p>
-        <label className="flex gap-2 text-sm"><input type="checkbox" checked={certified} onChange={e=>setCertified(e.target.checked)}/>
-          {t('I certify that the information supplied is complete and accurate.')}</label>
-        <label className="flex gap-2 text-sm"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/>
-          {t('I consent to processing this information for recruitment.')}</label>
+        <label className="flex gap-2 text-sm"><input type="checkbox" required checked={certified} onChange={e=>setCertified(e.target.checked)}/>
+          <span>{t('I certify that the information supplied is complete and accurate.')} <span aria-hidden="true" className="text-rose-600">*</span></span></label>
+        <label className="flex gap-2 text-sm"><input type="checkbox" required checked={consent} onChange={e=>setConsent(e.target.checked)}/>
+          <span>{t('I consent to processing this information for recruitment.')} <span aria-hidden="true" className="text-rose-600">*</span></span></label>
       </section>}
       <div className="border-t pt-4 flex flex-wrap gap-3 justify-between">
         <button type="button" disabled={busy} onClick={() => void saveDraft()} className={button + ' border border-[#085587] text-[#085587]'}>{t('Save draft')}</button>

@@ -36,6 +36,19 @@ test('verified canonical CA14-12 source is covered by persisted Auth/Postgres ap
   assert.match(localJourney, /CA14-12_APPLICATION_SNAPSHOT_IMMUTABLE_AFTER_PROFILE_EDIT_PASS/);
 });
 
+test('all canonical CA14 job-application stories have a concrete local Auth/Postgres browser evidence checkpoint', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(item => item.module_id === 'CA14');
+  assert.equal(stories.length, 12, 'Canonical CA14 module contains the 12 original Job Application stories.');
+  for (const story of stories) {
+    assert.ok(story.verbatim_requirement?.startsWith('As a candidate,'), `${story.story_id} retains its original source requirement.`);
+    assert.match(localJourney, new RegExp(`acceptedCa14Stories\\.add\\(['\"]${story.story_id}['\"]\\)`),
+      `${story.story_id} is marked only at its Auth/Postgres browser evidence assertion.`);
+  }
+  assert.match(localJourney, /CANDIDATE_CA14_STORY_EVIDENCE PASS=12 FAIL=0/);
+  assert.match(localJourney, /expectedCa14Stories\.every\(storyId => acceptedCa14Stories\.has\(storyId\)\)/);
+});
+
 test('server drafts resume application fields and document selections without contact PII', () => {
   assert.match(page, /loadVerifiedApplicationDraft/);
   assert.match(page, /saveVerifiedApplicationDraft/);
