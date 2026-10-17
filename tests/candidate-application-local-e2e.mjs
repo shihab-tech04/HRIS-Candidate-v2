@@ -780,21 +780,8 @@ try {
   await mobilePage.getByRole('button', { name: 'Apply', exact: true }).click();
   await mobilePage.getByRole('heading', { name: 'Apply for Senior Systems Engineer' }).waitFor();
   const candidateNameField = mobilePage.getByLabel(/Full legal name/);
-  const candidateCvField = mobilePage.getByLabel('Verified saved CV');
-  const requiredScreeningField = mobilePage.getByLabel(/Describe a privacy control you have implemented/);
-  const requiredDocumentField = mobilePage.getByLabel(/Degree certificate/).first();
-  const requiredAccuracyField = mobilePage.getByLabel(/I certify that the information supplied is complete and accurate\./);
-  const requiredConsentField = mobilePage.getByLabel(/I consent to processing this information for recruitment\./);
-  const requiredIndicators = await Promise.all([
-    candidateNameField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
-    candidateCvField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
-    requiredScreeningField.evaluate(el => el.parentElement?.textContent?.includes('*')),
-    requiredDocumentField.evaluate(el => el.parentElement?.textContent?.includes('*')),
-    requiredAccuracyField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
-    requiredConsentField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
-  ]);
-  assert(requiredIndicators.every(Boolean), 'Required application fields and declarations are not visibly identified and semantically required.');
-  acceptedCa14Stories.add('CA14-08');
+  assert(await candidateNameField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
+    'Required application name is not visibly identified and semantically required.');
   await mobilePage.getByLabel(/Full legal name/).fill('');
   await mobilePage.getByRole('button', { name: 'Continue' }).click();
   assert((await mobilePage.getByRole('alert').innerText()).includes('Enter your full legal name'), 'Missing legal name was not validated in the application form.');
@@ -802,6 +789,9 @@ try {
   await mobilePage.getByLabel('Contact phone').fill('+8801711223344');
   await mobilePage.getByRole('button', { name: 'Continue' }).click();
   await mobilePage.getByRole('heading', { name: 'CV selection' }).waitFor();
+  const candidateCvField = mobilePage.getByLabel(/Verified saved CV/);
+  assert(await candidateCvField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
+    'Required saved CV is not visibly identified and semantically required.');
   await mobilePage.getByRole('button', { name: 'Continue' }).click();
   assert((await mobilePage.getByRole('alert').innerText()).includes('Create or select a saved CV'), 'Missing saved CV was not validated in the application form.');
   await mobilePage.getByPlaceholder('CV title').fill('C1 application CV');
@@ -814,6 +804,11 @@ try {
   acceptedCa14Stories.add('CA14-03');
   await mobilePage.getByRole('button', { name: 'Continue' }).click();
   await mobilePage.getByRole('heading', { name: 'Screening questions and introduction' }).waitFor();
+  const requiredScreeningField = mobilePage.getByLabel(/Describe a privacy control you have implemented/);
+  const requiredDocumentField = mobilePage.getByLabel(/Degree certificate/).first();
+  assert(await requiredScreeningField.evaluate(el => el.parentElement?.textContent?.includes('*'))
+    && await requiredDocumentField.evaluate(el => el.parentElement?.textContent?.includes('*')),
+  'Required screening and supporting-document fields are not visibly identified.');
   await mobilePage.getByLabel(/Describe a privacy control you have implemented/).fill('I use least-privilege row policies.');
   await mobilePage.getByLabel('Cover letter (optional)').fill('I am interested in this role.');
   assert(await mobilePage.getByText('No supporting documents are saved yet. Upload any documents required by this vacancy below.').count() === 1,
@@ -924,6 +919,12 @@ try {
     && await page.getByText('Screening responses: 1', { exact: true }).count() === 1,
   'The final application review step did not summarize the persisted job, applicant, CV and screening responses.');
   acceptedCa14Stories.add('CA14-07');
+  const requiredAccuracyField = page.getByLabel(/I certify that the information supplied is complete and accurate\./);
+  const requiredConsentField = page.getByLabel(/I consent to processing this information for recruitment\./);
+  assert(await requiredAccuracyField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*'))
+    && await requiredConsentField.evaluate(el => el.required && el.parentElement?.textContent?.includes('*')),
+  'Required review declarations are not visibly identified and semantically required.');
+  acceptedCa14Stories.add('CA14-08');
   await page.getByLabel(/certify that the information supplied is complete and accurate/).check();
   await page.getByLabel(/consent to processing this information for recruitment/).check();
   await page.getByRole('button', { name: 'Submit application' }).click();
