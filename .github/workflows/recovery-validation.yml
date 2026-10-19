@@ -21,6 +21,14 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: UX/UI v8 approved-change inventory (diagnostic, not acceptance)
+        run: |
+          node scripts/ui-regression-guard.mjs --self-test
+          node scripts/product-integrity-gate.mjs --mode=self-test
+          node scripts/product-integrity-gate.mjs --mode=pr
+          node scripts/product-integrity-gate.mjs --mode=audit
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
