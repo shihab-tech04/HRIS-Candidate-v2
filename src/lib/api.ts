@@ -1348,6 +1348,55 @@ export async function createVerifiedCandidateJobAlert(
   };
 }
 
+export async function updateVerifiedCandidateJobAlert(
+  userId: string, alertId: string, input: VerifiedCandidateJobAlertInput
+): Promise<VerifiedCandidateJobAlert> {
+  const sb = await authorizedCandidate(userId);
+  const title = input.title.trim();
+  if (!title) throw new Error('Enter a name for this job alert.');
+  const nullableText = (value: string | null) => value?.trim() || null;
+  const { data, error } = await sb.from('candidate_job_alerts').update({
+    title,
+    keywords: nullableText(input.keywords),
+    department: nullableText(input.department),
+    location: nullableText(input.location),
+    workplace_type: nullableText(input.workplace_type),
+    employment_type: nullableText(input.employment_type),
+  }).eq('id', alertId).eq('candidate_user_id', userId)
+    .select('id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active,created_at')
+    .maybeSingle();
+  if (error || !data) throw new Error(error?.message || 'Job alert is no longer available.');
+  return {
+    id: String(data.id), title: String(data.title || ''),
+    keywords: data.keywords == null ? null : String(data.keywords),
+    department: data.department == null ? null : String(data.department),
+    location: data.location == null ? null : String(data.location),
+    workplace_type: data.workplace_type == null ? null : String(data.workplace_type),
+    employment_type: data.employment_type == null ? null : String(data.employment_type),
+    frequency: 'Instant', is_active: data.is_active === true, created_at: String(data.created_at || ''),
+  };
+}
+
+export async function setVerifiedCandidateJobAlertActive(
+  userId: string, alertId: string, isActive: boolean
+): Promise<VerifiedCandidateJobAlert> {
+  const sb = await authorizedCandidate(userId);
+  const { data, error } = await sb.from('candidate_job_alerts').update({ is_active: isActive })
+    .eq('id', alertId).eq('candidate_user_id', userId)
+    .select('id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active,created_at')
+    .maybeSingle();
+  if (error || !data) throw new Error(error?.message || 'Job alert is no longer available.');
+  return {
+    id: String(data.id), title: String(data.title || ''),
+    keywords: data.keywords == null ? null : String(data.keywords),
+    department: data.department == null ? null : String(data.department),
+    location: data.location == null ? null : String(data.location),
+    workplace_type: data.workplace_type == null ? null : String(data.workplace_type),
+    employment_type: data.employment_type == null ? null : String(data.employment_type),
+    frequency: 'Instant', is_active: data.is_active === true, created_at: String(data.created_at || ''),
+  };
+}
+
 export async function deleteVerifiedCandidateJobAlert(userId: string, alertId: string): Promise<void> {
   const sb = await authorizedCandidate(userId);
   const { data, error } = await sb.from('candidate_job_alerts').delete()

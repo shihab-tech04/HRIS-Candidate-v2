@@ -90,6 +90,34 @@ test('canonical CA12 Saved Jobs stories use the existing owner-scoped saved-job 
   assert.match(localJourney, /closed saved vacancy in the disposable projection/);
 });
 
+test('canonical CA13 Job Alerts stories use only the existing owner-scoped alert and notification tables', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(item => item.module_id === 'CA13');
+  assert.deepEqual(stories.map(story => story.story_id), ['CA13-01','CA13-02','CA13-03','CA13-04','CA13-05']);
+  assert.deepEqual(stories.map(story => story.verbatim_requirement), [
+    'As a candidate, I want to create a job alert.',
+    'As a candidate, I want to define relevant criteria.',
+    'As a candidate, I want to enable/disable an alert.',
+    'As a candidate, I want to edit/delete alerts.',
+    'As a candidate, I want notifications only when relevant jobs meet the criteria.',
+  ]);
+  assert.match(api, /from\('candidate_job_alerts'\)\.insert\(/);
+  assert.match(api, /export async function updateVerifiedCandidateJobAlert[\s\S]*?\.update\([\s\S]*?\.eq\('id', alertId\)\.eq\('candidate_user_id', userId\)/);
+  assert.match(api, /export async function setVerifiedCandidateJobAlertActive[\s\S]*?\.update\(\{ is_active: isActive \}\)[\s\S]*?\.eq\('id', alertId\)\.eq\('candidate_user_id', userId\)/);
+  assert.match(api, /export async function deleteVerifiedCandidateJobAlert[\s\S]*?\.eq\('id', alertId\)\.eq\('candidate_user_id', userId\)/);
+  assert.match(localFixture, /c1_candidate_job_alerts_own[\s\S]*?candidate_user_id=\(SELECT auth\.uid\(\)\)/);
+  assert.match(savedJobsPage, /aria-label=\{t\('Edit \{title\} alert'/);
+  assert.match(savedJobsPage, /Pause \{title\} alert/);
+  assert.match(localFixture, /c1_notify_matching_job_alerts[\s\S]*?EXISTS \([\s\S]*?regexp_split_to_table\(alert\.keywords/);
+  for (const story of stories) {
+    assert.match(localJourney, new RegExp(`acceptedCa13Stories\\.add\\(['"]${story.story_id}['"]\\)`),
+      `${story.story_id} is marked at its signed-in synthetic browser and database assertion.`);
+  }
+  assert.match(localJourney, /CANDIDATE_CA13_STORY_EVIDENCE PASS=5 FAIL=0/);
+  assert.match(localJourney, /expectedCa13Stories\.every\(storyId => acceptedCa13Stories\.has\(storyId\)\)/);
+  assert.match(localJourney, /unrelated vacancy generated an alert notification/);
+});
+
 test('server drafts resume application fields and document selections without contact PII', () => {
   assert.match(page, /loadVerifiedApplicationDraft/);
   assert.match(page, /saveVerifiedApplicationDraft/);

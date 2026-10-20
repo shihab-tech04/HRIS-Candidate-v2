@@ -88,6 +88,7 @@ const acceptedCa14Stories = new Set();
 const acceptedCa10Stories = new Set();
 const acceptedCa11Stories = new Set();
 const acceptedCa12Stories = new Set();
+const acceptedCa13Stories = new Set();
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 const organizationDateTime = daysAhead => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -651,6 +652,8 @@ try {
     && candidateAAlert.data.employment_type === 'Full-time' && candidateAAlert.data.frequency === 'Instant'
     && candidateAAlert.data.is_active,
   `Candidate alert filters did not persist to the isolated production-shaped table: ${JSON.stringify(candidateAAlert.error)}`);
+  acceptedCa13Stories.add('CA13-01');
+  acceptedCa13Stories.add('CA13-02');
   const candidateBCannotReadAlert = await users[1].client.from('candidate_job_alerts').select('id')
     .eq('candidate_user_id', users[0].id);
   assert(!candidateBCannotReadAlert.error && candidateBCannotReadAlert.data.length === 0,
@@ -664,6 +667,64 @@ try {
   const anonymousAlerts = await anon.from('candidate_job_alerts').select('id');
   assert(Boolean(anonymousAlerts.error), 'Anonymous sessions could read private candidate alerts.');
 
+  await mobilePage.getByRole('button', { name: 'Pause Platform roles in Dhaka alert' }).click();
+  await mobilePage.getByText('Instant · Paused', { exact: true }).waitFor({ timeout: 20000 });
+  const pausedCandidateAlert = await users[0].client.from('candidate_job_alerts').select('is_active')
+    .eq('id', candidateAAlert.data.id).single();
+  assert(!pausedCandidateAlert.error && pausedCandidateAlert.data.is_active === false,
+    `Pausing the alert did not persist its disabled state: ${JSON.stringify(pausedCandidateAlert.error)}`);
+  await mobilePage.getByRole('button', { name: 'Resume Platform roles in Dhaka alert' }).click();
+  await mobilePage.getByText('Instant · Active', { exact: true }).waitFor({ timeout: 20000 });
+  const resumedCandidateAlert = await users[0].client.from('candidate_job_alerts').select('is_active')
+    .eq('id', candidateAAlert.data.id).single();
+  assert(!resumedCandidateAlert.error && resumedCandidateAlert.data.is_active === true,
+    `Resuming the alert did not persist its enabled state: ${JSON.stringify(resumedCandidateAlert.error)}`);
+  acceptedCa13Stories.add('CA13-03');
+
+  const revisedAlertTitle = 'Platform roles in Dhaka - revised';
+  await mobilePage.getByRole('button', { name: 'Edit Platform roles in Dhaka alert' }).click();
+  await mobilePage.getByRole('heading', { name: 'Edit job alert' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByLabel('Alert name').fill(revisedAlertTitle);
+  await mobilePage.getByLabel('Keywords').fill('Rust');
+  await mobilePage.getByRole('button', { name: 'Update job alert' }).click();
+  await mobilePage.getByRole('status').filter({ hasText: 'was updated.' }).waitFor({ timeout: 20000 });
+  const editedCandidateAlert = await admin.from('candidate_job_alerts')
+    .select('title,keywords,department,location,workplace_type,employment_type,is_active')
+    .eq('id', candidateAAlert.data.id).single();
+  assert(!editedCandidateAlert.error && editedCandidateAlert.data.title === revisedAlertTitle
+    && editedCandidateAlert.data.keywords === 'Rust' && editedCandidateAlert.data.department === 'Engineering'
+    && editedCandidateAlert.data.location === 'Dhaka' && editedCandidateAlert.data.workplace_type === 'Hybrid'
+    && editedCandidateAlert.data.employment_type === 'Full-time' && editedCandidateAlert.data.is_active,
+  `Editing the alert did not preserve and update its selected criteria: ${JSON.stringify(editedCandidateAlert.error)}`);
+  await mobilePage.getByRole('button', { name: `Remove ${revisedAlertTitle} alert` }).click();
+  await mobilePage.getByText('You have no job alerts yet.', { exact: true }).waitFor({ timeout: 20000 });
+  const deletedCandidateAlert = await users[0].client.from('candidate_job_alerts').select('id')
+    .eq('id', candidateAAlert.data.id);
+  assert(!deletedCandidateAlert.error && deletedCandidateAlert.data.length === 0,
+    'Deleting the edited alert did not persist its removal.');
+  acceptedCa13Stories.add('CA13-04');
+
+  await mobilePage.getByLabel('Alert name').fill('Platform roles in Dhaka');
+  await mobilePage.getByLabel('Keywords').fill('PostgreSQL');
+  await mobilePage.getByLabel('Department').fill('Engineering');
+  await mobilePage.getByLabel('Location').fill('Dhaka');
+  await mobilePage.getByLabel('Workplace type').selectOption('Hybrid');
+  await mobilePage.getByLabel('Employment type').selectOption('Full-time');
+  await mobilePage.getByRole('button', { name: 'Save job alert' }).click();
+  await mobilePage.getByRole('status').filter({ hasText: 'is active. Matching newly published roles' }).waitFor({ timeout: 20000 });
+  const notificationAlert = await admin.from('candidate_job_alerts')
+    .select('id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active')
+    .eq('candidate_user_id', users[0].id).single();
+  assert(!notificationAlert.error && notificationAlert.data.is_active,
+    `The criteria-matching alert was not active before notification checks: ${JSON.stringify(notificationAlert.error)}`);
+
+  const retriggerNonmatchingJob = await admin.from('jobs').update({ published_at: new Date().toISOString() }).eq('id', interviewCompletedJobId);
+  if (retriggerNonmatchingJob.error) throw retriggerNonmatchingJob.error;
+  const nonmatchingJobNotification = await admin.from('candidate_notifications').select('id')
+    .eq('candidate_user_id', users[0].id).eq('notification_type', 'job_alert_match').eq('related_job_id', interviewCompletedJobId);
+  assert(!nonmatchingJobNotification.error && nonmatchingJobNotification.data.length === 0,
+    'An unrelated vacancy generated an alert notification despite the candidate criteria.');
+
   const retriggerMatchingJob = await admin.from('jobs').update({ published_at: new Date().toISOString() }).eq('id', jobId);
   if (retriggerMatchingJob.error) throw retriggerMatchingJob.error;
   const jobAlertNotification = await admin.from('candidate_notifications')
@@ -673,6 +734,11 @@ try {
     && jobAlertNotification.data.message === 'Senior Systems Engineer matches your job alert.'
     && jobAlertNotification.data.action_view === 'job-detail' && !jobAlertNotification.data.is_read,
   `Matching job trigger did not create the expected in-app notification: ${JSON.stringify(jobAlertNotification.error)}`);
+  acceptedCa13Stories.add('CA13-05');
+  const expectedCa13Stories = ['CA13-01','CA13-02','CA13-03','CA13-04','CA13-05'];
+  assert(expectedCa13Stories.every(storyId => acceptedCa13Stories.has(storyId)),
+    `Not all canonical Job Alerts stories have runtime evidence: ${expectedCa13Stories.filter(storyId => !acceptedCa13Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA13_STORY_EVIDENCE PASS=5 FAIL=0 stories=${expectedCa13Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520 contract=candidate_job_alerts+candidate_notifications owner=synthetic-auth foreign-tenant-denied anonymous-denied match-and-nonmatch-verified\n`);
   const duplicateMatchTrigger = await admin.from('jobs').update({ published_at: new Date().toISOString() }).eq('id', jobId);
   if (duplicateMatchTrigger.error) throw duplicateMatchTrigger.error;
   const matchingNotificationCount = await admin.from('candidate_notifications').select('id', { count: 'exact', head: true })
