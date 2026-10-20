@@ -1970,7 +1970,7 @@ try {
 
   const actionableApplicationCard = page.locator(`[aria-controls="application-history-${application.id}"]`);
   if (await actionableApplicationCard.getAttribute('aria-expanded') !== 'true') await actionableApplicationCard.click();
-  const actionableApplicationHistory = page.locator(`#application-history-${application.id}`);
+  const actionableApplicationHistory = page.locator(`#application-history-${application.id}`).locator('xpath=..');
   await actionableApplicationHistory.getByRole('button', { name: 'Check Interviews', exact: true }).click();
   await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: 'My Applications', exact: true }).first().click();
