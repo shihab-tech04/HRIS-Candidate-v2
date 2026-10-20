@@ -246,6 +246,35 @@ test('canonical CA15 My Applications stories have isolated signed-in runtime evi
   assert.match(localJourney, /acceptedCa15Stories\.add\('CA15-07'\)[\s\S]*?acceptedCa15Stories\.add\('CA15-08'\)/);
 });
 
+test('canonical CA16 interview stories use existing candidate RPCs and disposable recruiter scheduling evidence', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(story => story.module_id === 'CA16');
+  assert.equal(stories.length, 8, 'Canonical CA16 module contains the 8 original Interview stories.');
+  for (const story of stories) {
+    assert.ok(story.verbatim_requirement?.startsWith('As a candidate,'), `${story.story_id} retains its original source requirement.`);
+    assert.match(localJourney, new RegExp(`acceptedCa16Stories\\.add\\(['\"]${story.story_id}['\"]\\)`),
+      `${story.story_id} is marked only at its signed-in Auth/Postgres browser evidence assertion.`);
+  }
+  assert.match(api, /rpc\('candidate_get_recruitment_context'\)/);
+  assert.match(api, /rpc\('candidate_respond_interview'/);
+  for (const unsupportedRpc of [
+    'hris_get_recruitment_pipeline',
+    'hris_update_candidate_application_stage',
+    'hris_issue_candidate_offer',
+    'hris_schedule_candidate_interview',
+    'hris_get_candidate_interview_responses',
+    'hris_save_candidate_interview_panel_notes',
+    'hris_complete_candidate_interview',
+  ]) {
+    assert.ok(!api.includes(unsupportedRpc), `${unsupportedRpc} must remain unavailable in Candidate client actions.`);
+  }
+  assert.match(localJourney, /candidateCannotSchedule\.error\?\.code === '42501'/);
+  assert.match(localJourney, /crossCandidateResponse\.error\?\.code === 'P0002'/);
+  assert.match(localJourney, /interviewHistoryCards\.count\(\) === 2[\s\S]*?acceptedCa16Stories\.add\('CA16-08'\)/);
+  assert.match(localJourney, /CANDIDATE_CA16_STORY_EVIDENCE PASS=8 FAIL=0/);
+  assert.match(localJourney, /recruiter-scheduling=disposable-only[\s\S]*?production-hr-rpc=blocked/);
+});
+
 test('application withdrawal dialog has labelled modal semantics, keyboard containment and recoverable errors', () => {
   const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
   assert.match(applicationsPage, /role="dialog" aria-modal="true" aria-labelledby="withdraw-application-title" aria-describedby="withdraw-application-description"/);

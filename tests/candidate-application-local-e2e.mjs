@@ -90,6 +90,7 @@ const acceptedCa10Stories = new Set();
 const acceptedCa11Stories = new Set();
 const acceptedCa12Stories = new Set();
 const acceptedCa13Stories = new Set();
+const acceptedCa16Stories = new Set();
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 const organizationDateTime = daysAhead => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -1354,7 +1355,7 @@ try {
   await withdrawalPage.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
   const withdrawalCard = withdrawalPage.getByRole('button', { name: /Candidate Withdrawal Role/ });
   await withdrawalCard.waitFor({ state: 'visible' });
-  const candidateBApplicationCards = withdrawalPage.locator('[role="button"][aria-label^="Application history for "]');
+  const candidateBApplicationCards = withdrawalPage.locator('[role="button"][aria-controls^="application-history-"]');
   assert(await candidateBApplicationCards.count() === 3
     && await withdrawalPage.getByRole('button', { name: /Senior Systems Engineer/ }).count() === 0,
   'Candidate B did not receive all three of their application records while the foreign tenant application stayed hidden.');
@@ -1770,6 +1771,24 @@ try {
   assert(await page.getByText('Video Call', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview format. URL=${page.url()} errors=${browserErrors.join(';') || 'none'} UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
   assert(await page.getByText('Panel Member One, Panel Member Two', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview panel. UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
   assert(await page.getByText('Asia/Dhaka', { exact: false }).count() > 0, 'Candidate interview time did not disclose the organization time zone.');
+  const initialInterviewCard = page.locator('article').filter({ hasText: 'Technical Systems Interview' }).first();
+  const initialInterviewDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: scheduledInterview.data.timezone,
+  }).format(new Date(scheduledInterview.data.scheduled_at));
+  const initialInterviewTime = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit', minute: '2-digit', timeZone: scheduledInterview.data.timezone,
+  }).format(new Date(scheduledInterview.data.scheduled_at));
+  const initialInterviewDetails = await initialInterviewCard.innerText();
+  assert(initialInterviewDetails.includes(initialInterviewDate) && initialInterviewDetails.includes(initialInterviewTime),
+    'Candidate invitation did not display its persisted date and time in the organization time zone.');
+  assert(await initialInterviewCard.locator('a').getAttribute('href') === interviewArguments.p_location_or_link,
+    'Candidate invitation did not display the persisted secure meeting link.');
+  assert(await initialInterviewCard.getByText(interviewArguments.p_instructions, { exact: true }).count() === 1,
+    'Candidate invitation did not display the recruiter-provided candidate instructions.');
+  acceptedCa16Stories.add('CA16-01');
+  acceptedCa16Stories.add('CA16-02');
+  acceptedCa16Stories.add('CA16-03');
+  acceptedCa16Stories.add('CA16-04');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile candidate interview page overflows the viewport.');
   await page.getByRole('button', { name: 'Request Reschedule' }).click();
   try { await page.getByRole('heading', { name: 'Request Alternative Time Slot' }).waitFor({ timeout: 5000 }); }
@@ -1784,6 +1803,7 @@ try {
   assert(!candidateReschedule.error && candidateReschedule.data.candidate_response === 'reschedule_requested'
     && candidateReschedule.data.candidate_proposed_times === 'Friday 10:00–12:00 Asia/Dhaka',
   'Candidate reschedule request did not persist with its proposed availability.');
+  acceptedCa16Stories.add('CA16-06');
   const incompleteReschedule = await users[0].client.rpc('candidate_respond_interview', {
     p_interview_id: scheduledInterview.data.id, p_response: 'reschedule_requested', p_reason: null, p_proposed_times: null,
   });
@@ -1809,15 +1829,57 @@ try {
   await managerInterviewResponse.getByLabel('Candidate instructions').fill('Revised invitation.');
   await managerInterviewResponse.getByRole('button', { name: 'Send interview invitation' }).click();
   await mainManagerPage.getByText('Interview invitation scheduled.', { exact: false }).waitFor({ timeout: 20000 });
+  const replacementInterview = await admin.from('interviews')
+    .select('id,status,candidate_response,interview_type,scheduled_at,duration_minutes,location_or_link,timezone,instructions')
+    .eq('application_id', application.id).eq('status', 'scheduled').single();
+  assert(!replacementInterview.error && replacementInterview.data.id !== scheduledInterview.data.id
+    && replacementInterview.data.candidate_response === 'invited'
+    && replacementInterview.data.interview_type === 'Technical Systems Interview — Video Call'
+    && replacementInterview.data.location_or_link === 'https://meet.example.test/hris-candidate-rescheduled'
+    && replacementInterview.data.instructions === 'Revised invitation.'
+    && replacementInterview.data.duration_minutes === 45 && replacementInterview.data.timezone === 'Asia/Dhaka',
+    'Replacement invitation did not persist the updated candidate-facing details: '
+      + JSON.stringify(replacementInterview.error || replacementInterview.data));
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop candidate interview page overflows the viewport.');
   await page.getByText('Rescheduled', { exact: false }).waitFor().catch(() => {});
+  const replacementInterviewCard = page.locator('article').filter({ hasText: 'Revised invitation.' });
+  await replacementInterviewCard.getByText('Revised invitation.', { exact: true }).waitFor({ timeout: 20000 });
+  const replacementDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: replacementInterview.data.timezone,
+  }).format(new Date(replacementInterview.data.scheduled_at));
+  const replacementTime = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit', minute: '2-digit', timeZone: replacementInterview.data.timezone,
+  }).format(new Date(replacementInterview.data.scheduled_at));
+  const replacementDetails = await replacementInterviewCard.innerText();
+  assert(replacementDetails.includes(replacementDate) && replacementDetails.includes(replacementTime)
+    && await replacementInterviewCard.locator('a').getAttribute('href') === replacementInterview.data.location_or_link,
+    'Candidate did not see the updated replacement interview time and meeting link after the invitation changed.');
+  acceptedCa16Stories.add('CA16-07');
   await page.getByRole('button', { name: 'Accept Invitation' }).waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: 'Accept Invitation' }).click();
   await page.getByRole('button', { name: 'Confirm Response' }).click();
   await page.getByText('Confirmed / Accepted', { exact: true }).waitFor({ timeout: 20000 });
+  acceptedCa16Stories.add('CA16-05');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
+  await page.getByText('Confirmed / Accepted', { exact: true }).waitFor({ timeout: 20000 });
+  await page.getByText('Cancelled', { exact: true }).waitFor({ timeout: 20000 });
+  const interviewHistoryCards = page.locator('article');
+  const rescheduleHistoryCard = interviewHistoryCards.filter({ hasText: 'Your proposed availability:' });
+  const acceptedInterviewCard = interviewHistoryCards.filter({ hasText: 'Revised invitation.' });
+  assert(await interviewHistoryCards.count() === 2
+    && await rescheduleHistoryCard.getByText('Cancelled', { exact: true }).count() === 1
+    && await rescheduleHistoryCard.getByText('Friday 10:00–12:00 Asia/Dhaka', { exact: false }).count() === 1
+    && await acceptedInterviewCard.getByText('Confirmed / Accepted', { exact: true }).count() === 1,
+    'Candidate interview history did not retain the reschedule request and updated accepted invitation after refresh.');
+  acceptedCa16Stories.add('CA16-08');
+  const expectedCa16Stories = Array.from({ length: 8 }, (_, index) => 'CA16-' + String(index + 1).padStart(2, '0'));
+  assert(expectedCa16Stories.every(storyId => acceptedCa16Stories.has(storyId)),
+    'Not all canonical Candidate Interview stories have runtime evidence: '
+      + expectedCa16Stories.filter(storyId => !acceptedCa16Stories.has(storyId)).join(', '));
   const finalInterviews = await admin.from('interviews').select('status,candidate_response').eq('application_id', application.id).order('created_at');
   assert(!finalInterviews.error && finalInterviews.data.length === 2
     && finalInterviews.data[0].status === 'cancelled'
@@ -1827,6 +1889,11 @@ try {
   await mainManagerPage.reload({ waitUntil: 'domcontentloaded' });
   await mainManagerPage.getByRole('heading', { name: 'Interview responses' }).waitFor({ timeout: 20000 });
   await mainManagerPage.getByText('Candidate accepted', { exact: true }).waitFor();
+  process.stdout.write('CANDIDATE_CA16_STORY_EVIDENCE PASS=8 FAIL=0 stories=' + expectedCa16Stories.join(',')
+    + ' source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520'
+    + ' contract=candidate_get_recruitment_context+candidate_respond_interview'
+    + ' owner=synthetic-auth foreign-candidate-denied recruiter-scheduling=disposable-only'
+    + ' production-hr-rpc=blocked invitation-history=retained timezone=Asia/Dhaka viewports=375+1280\n');
 
   await candidateApplicationRow.getByText('Issue offer', { exact: true }).click();
   assert(await candidateApplicationRow.locator('form').last().evaluate(form => !form.checkValidity()), 'Offer form did not enforce required fields before submission.');
