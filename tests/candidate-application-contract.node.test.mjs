@@ -116,6 +116,8 @@ test('canonical CA13 Job Alerts stories use only the existing owner-scoped alert
   assert.match(localJourney, /CANDIDATE_CA13_STORY_EVIDENCE PASS=5 FAIL=0/);
   assert.match(localJourney, /expectedCa13Stories\.every\(storyId => acceptedCa13Stories\.has\(storyId\)\)/);
   assert.match(localJourney, /unrelated vacancy generated an alert notification/);
+  assert.match(localJourney, /Job-alert controls overflow the 375px candidate viewport/);
+  assert.match(localJourney, /Job-alert controls overflow the 1280px candidate viewport/);
 });
 
 test('server drafts resume application fields and document selections without contact PII', () => {

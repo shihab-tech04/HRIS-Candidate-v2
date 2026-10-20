@@ -652,6 +652,12 @@ try {
     && candidateAAlert.data.employment_type === 'Full-time' && candidateAAlert.data.frequency === 'Instant'
     && candidateAAlert.data.is_active,
   `Candidate alert filters did not persist to the isolated production-shaped table: ${JSON.stringify(candidateAAlert.error)}`);
+  await mobilePage.setViewportSize({ width: 375, height: 812 });
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'Job-alert controls overflow the 375px candidate viewport.');
+  await mobilePage.setViewportSize({ width: 1280, height: 800 });
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'Job-alert controls overflow the 1280px candidate viewport.');
   acceptedCa13Stories.add('CA13-01');
   acceptedCa13Stories.add('CA13-02');
   const candidateBCannotReadAlert = await users[1].client.from('candidate_job_alerts').select('id')
