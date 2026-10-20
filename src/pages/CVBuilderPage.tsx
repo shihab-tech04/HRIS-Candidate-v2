@@ -75,7 +75,7 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
 
   const handleSelectCv = (cv: CandidateCV) => {
     setSelectedCv(cv);
-    setCvData(cv.structured_content || profile || {});
+    setCvData({ ...(profile || {}), ...(cv.structured_content || {}) });
     setParseNotice(null);
     setReviewProfile(null);
     setReviewEmail('');
