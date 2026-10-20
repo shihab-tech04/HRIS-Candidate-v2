@@ -1216,10 +1216,13 @@ try {
   await page.getByRole('button', { name: 'Save Profile Changes' }).click();
   await page.getByRole('status').getByText('Profile successfully updated in Synesis HRMIS.', { exact: true }).waitFor({ timeout: 20000 });
   const selectedProfile = await admin.from('candidate_profiles')
-    .select('headline,current_location').eq('user_id', users[0].id).single();
-  assert(!selectedProfile.error && selectedProfile.data.headline === selectedHeadline
-    && selectedProfile.data.current_location === selectedLocation,
-  `CA11-03: supported profile sections did not persist through candidate_update_profile: ${JSON.stringify(selectedProfile.error)}`);
+    .select('full_name,headline,current_location,skills,profile_data').eq('user_id', users[0].id).single();
+  assert(!selectedProfile.error && selectedProfile.data.full_name === 'Mira Rani Patel Reviewed'
+    && selectedProfile.data.headline === selectedHeadline && selectedProfile.data.current_location === selectedLocation
+    && selectedProfile.data.skills.includes('Accessibility')
+    && selectedProfile.data.profile_data.experiences[0].title === 'Lead Product Designer'
+    && selectedProfile.data.profile_data.educations[0].institution === 'Reviewed University',
+  `CA11-03: editing supported profile fields changed saved identity or CV data: ${JSON.stringify(selectedProfile.error || selectedProfile.data)}`);
   await page.getByRole('button', { name: 'CV & Documents' }).click();
   await page.getByRole('heading', { name: 'Structured CV Builder & Manager' }).waitFor({ timeout: 20000 });
   await page.getByText('C1 profile CV', { exact: true }).first().click();
