@@ -981,6 +981,11 @@ try {
   await page.getByPlaceholder('Version title (e.g. Lead Architect CV)').fill('C1 parser CV');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   const cvUploadInput = page.locator('input[type="file"][accept=".pdf,.doc,.docx"]');
+  await page.getByText('C1 parser CV', { exact: true }).waitFor({ timeout: 20000 });
+  await page.waitForFunction(() => {
+    const input = document.querySelector('input[type="file"][accept=".pdf,.doc,.docx"]');
+    return input && !input.disabled;
+  }, { timeout: 20000 });
   await cvUploadInput.setInputFiles(path.join(candidateRoot, 'tests/fixtures/candidate-cv-parsing-fixture.pdf'));
   try {
     await page.getByRole('heading', { name: 'Review extracted details' }).waitFor({ timeout: 20000 });

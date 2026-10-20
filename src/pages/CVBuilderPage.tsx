@@ -332,15 +332,16 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
                   Extracted details will be editable before saving
                 </p>
                 <label className="inline-block py-1.5 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">
-                  {parsing ? 'Uploading and parsing...' : 'Choose File'}
+                  {!selectedCv ? 'Create a CV version first' : parsing ? 'Uploading and parsing...' : 'Choose File'}
                   <input
                     type="file"
                     accept=".pdf,.doc,.docx"
                     className="hidden"
                     onChange={handleParseUpload}
-                    disabled={parsing}
+                    disabled={parsing || !selectedCv}
                   />
                 </label>
+                {!selectedCv && <p className="text-[11px] text-slate-500">Create or select a CV version before uploading.</p>}
                 {uploadFile && <p className="mt-2 text-[11px] text-slate-500 break-all">Selected: {uploadFile.name}</p>}
                 <p className="mt-2 text-[11px] text-slate-500">
                   PDF and DOCX text is parsed in this browser. Legacy DOC files are kept privately for manual review.
