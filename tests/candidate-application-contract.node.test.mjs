@@ -234,6 +234,18 @@ test('Candidate withdrawal is server-persisted and preserves existing offer-stag
   assert.match(localJourney, /setViewportSize\(\{ width: 375, height: 812 \}\)[\s\S]*?setViewportSize\(\{ width: 1280, height: 800 \}\)/);
 });
 
+test('canonical CA15 My Applications stories have isolated signed-in runtime evidence', () => {
+  assert.match(api, /rpc\('candidate_get_recruitment_context'\)/);
+  assert.match(api, /rpc\('candidate_withdraw_application'/);
+  assert.match(localJourney, /CANDIDATE_CA15_STORY_EVIDENCE PASS=8 FAIL=0 stories=\$\{expectedCa15Stories\.join\(','\)\}/);
+  assert.match(localJourney, /Array\.from\(\{ length: 8 \}, \(_, index\) => `CA15-/);
+  assert.match(localJourney, /candidateBApplicationCards\.count\(\) === 3[\s\S]*?acceptedCa15Stories\.add\('CA15-01'\)/);
+  assert.match(localJourney, /candidateSubmittedDate[\s\S]*?acceptedCa15Stories\.add\('CA15-04'\)/);
+  assert.match(localJourney, /Check Interviews[\s\S]*?Assessments & Documents[\s\S]*?acceptedCa15Stories\.add\('CA15-05'\)/);
+  assert.match(localJourney, /persistedTimeline\.includes\('private recruiter'\)[\s\S]*?acceptedCa15Stories\.add\('CA15-06'\)/);
+  assert.match(localJourney, /acceptedCa15Stories\.add\('CA15-07'\)[\s\S]*?acceptedCa15Stories\.add\('CA15-08'\)/);
+});
+
 test('application withdrawal dialog has labelled modal semantics, keyboard containment and recoverable errors', () => {
   const applicationsPage = readFileSync(new URL('../src/pages/ApplicationsPage.tsx', import.meta.url), 'utf8');
   assert.match(applicationsPage, /role="dialog" aria-modal="true" aria-labelledby="withdraw-application-title" aria-describedby="withdraw-application-description"/);

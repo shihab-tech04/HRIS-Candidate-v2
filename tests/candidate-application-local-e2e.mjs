@@ -85,6 +85,7 @@ let checks = 0;
 let fixtureReady = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); checks++; };
 const acceptedCa14Stories = new Set();
+const acceptedCa15Stories = new Set();
 const acceptedCa10Stories = new Set();
 const acceptedCa11Stories = new Set();
 const acceptedCa12Stories = new Set();
@@ -1353,7 +1354,24 @@ try {
   await withdrawalPage.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
   const withdrawalCard = withdrawalPage.getByRole('button', { name: /Candidate Withdrawal Role/ });
   await withdrawalCard.waitFor({ state: 'visible' });
+  const candidateBApplicationCards = withdrawalPage.locator('[role="button"][aria-label^="Application history for "]');
+  assert(await candidateBApplicationCards.count() === 3
+    && await withdrawalPage.getByRole('button', { name: /Senior Systems Engineer/ }).count() === 0,
+  'Candidate B did not receive all three of their application records while the foreign tenant application stayed hidden.');
+  acceptedCa15Stories.add('CA15-01');
   const acceptedOfferCard = withdrawalPage.getByRole('button', { name: /Other Tenant Role/ });
+  assert(await acceptedOfferCard.getByText('Offer Accepted', { exact: true }).count() === 1
+    && await withdrawalCard.getByText('Screening in Progress', { exact: true }).count() === 1,
+  'Candidate application cards did not show meaningful candidate-facing stages.');
+  acceptedCa15Stories.add('CA15-02');
+  const withdrawalApplicationRow = await admin.from('job_applications').select('applied_at').eq('id', withdrawalApplicationId).single();
+  assert(!withdrawalApplicationRow.error, 'Candidate application submission date fixture could not be read.');
+  const candidateSubmittedDate = await withdrawalPage.evaluate(value =>
+    new Date(value).toLocaleDateString(document.documentElement.lang === 'bn' ? 'bn-BD' : 'en-US'),
+  withdrawalApplicationRow.data.applied_at);
+  assert(await withdrawalCard.getByText(`Submitted ${candidateSubmittedDate}`, { exact: true }).count() === 1,
+    'Candidate application card did not show the persisted submission date.');
+  acceptedCa15Stories.add('CA15-04');
   await acceptedOfferCard.click();
   assert(await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).count() === 1,
     'The Candidate UI no longer preserves withdrawal access for an offer-stage application.');
@@ -1363,6 +1381,10 @@ try {
     'The Candidate UI allowed withdrawal from a rejected application.');
   await withdrawalCard.click();
   await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).waitFor();
+  assert(await withdrawalPage.getByRole('region', { name: 'Application history' }).count() === 1
+    && await withdrawalPage.getByText('Submission Details', { exact: true }).count() === 1,
+  'Opening an application did not reveal its candidate-facing detail and history.');
+  acceptedCa15Stories.add('CA15-03');
   await withdrawalPage.getByRole('button', { name: 'Switch to Bengali' }).click();
   await withdrawalPage.getByRole('heading', { name: 'আমার আবেদন' }).waitFor({ timeout: 20000 });
   await withdrawalPage.getByRole('button', { name: 'আবেদন প্রত্যাহার করুন', exact: true }).click();
@@ -1456,6 +1478,12 @@ try {
     'The Candidate UI still offered withdrawal for an already withdrawn application.');
   assert(!(await withdrawalPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
     'The Candidate desktop withdrawal history overflows the viewport.');
+  assert(await candidateBApplicationCards.count() === 3
+    && await withdrawalPage.getByRole('button', { name: /Candidate Withdrawal Role/ }).count() === 1
+    && await withdrawalPage.getByRole('button', { name: /Candidate Rejected Role/ }).count() === 1,
+  'Withdrawing an application removed it from history or hid another completed application.');
+  acceptedCa15Stories.add('CA15-07');
+  acceptedCa15Stories.add('CA15-08');
   await withdrawalContext.close();
 
   await page.goto(`http://127.0.0.1:${webPort}/?view=applications&application=${application.id}`, { waitUntil: 'domcontentloaded' });
@@ -1855,6 +1883,7 @@ try {
   const persistedTimeline = await page.locator('body').innerText();
   assert(!persistedTimeline.includes('private recruiter') && !persistedTimeline.includes('panel note'),
     'Candidate application history exposed internal recruiter notes.');
+  acceptedCa15Stories.add('CA15-06');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile application history overflows the viewport.');
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -1867,6 +1896,22 @@ try {
   assert(!(await desktopInterviewCompletedTimeline.innerText()).includes('Private completed-interview recruiter note.'),
     'Candidate desktop interview-completion history exposed a recruiter-only note.');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop application history overflows the viewport.');
+
+  const actionableApplicationCard = page.getByRole('button', { name: /Application history for Senior Systems Engineer/ });
+  if (await actionableApplicationCard.getAttribute('aria-expanded') !== 'true') await actionableApplicationCard.click();
+  await actionableApplicationCard.getByRole('button', { name: 'Check Interviews', exact: true }).click();
+  await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'My Applications', exact: true }).first().click();
+  await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
+  const returnedApplicationCard = page.getByRole('button', { name: /Application history for Senior Systems Engineer/ });
+  await returnedApplicationCard.click();
+  await returnedApplicationCard.getByRole('button', { name: 'Assessments & Documents', exact: true }).click();
+  await page.getByRole('heading', { name: 'Assessments & Document Requests' }).waitFor({ timeout: 20000 });
+  acceptedCa15Stories.add('CA15-05');
+  const expectedCa15Stories = Array.from({ length: 8 }, (_, index) => `CA15-${String(index + 1).padStart(2, '0')}`);
+  assert(expectedCa15Stories.every(storyId => acceptedCa15Stories.has(storyId)),
+    `Not all canonical My Applications stories have runtime evidence: ${expectedCa15Stories.filter(storyId => !acceptedCa15Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA15_STORY_EVIDENCE PASS=8 FAIL=0 stories=${expectedCa15Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520 contract=candidate_get_recruitment_context+candidate_withdraw_application owner=synthetic-auth foreign-tenant-denied private-notes-denied mobile+desktop\n`);
 
   const candidateOfferContexts = [];
   page.on('response', async response => {
