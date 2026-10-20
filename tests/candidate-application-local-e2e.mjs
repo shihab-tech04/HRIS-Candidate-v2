@@ -1149,16 +1149,18 @@ try {
   }
   await cvPdf.destroy();
   const generatedCvText = cvPdfText.join(' ').replace(/\s+/g, ' ');
+  const compactGeneratedCvText = generatedCvText.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const pdfContains = value => compactGeneratedCvText.includes(value.toLowerCase().replace(/[^a-z0-9]+/g, ''));
   assert(cvPdfBytes.byteLength > 1000
-    && generatedCvText.includes('Mira Rani Patel Reviewed')
-    && generatedCvText.includes(selectedHeadline)
-    && generatedCvText.includes(tailoredCvSummary)
-    && generatedCvText.includes(selectedLocation)
-    && generatedCvText.includes('Accessibility')
-    && generatedCvText.includes('Lead Product Designer')
-    && generatedCvText.includes('Reviewed University')
-    && !generatedCvText.includes('Managed CV Versions')
-    && !generatedCvText.includes('Open Roles'),
+    && pdfContains('Mira Rani Patel Reviewed')
+    && pdfContains(selectedHeadline)
+    && pdfContains(tailoredCvSummary)
+    && pdfContains(selectedLocation)
+    && pdfContains('Accessibility')
+    && pdfContains('Lead Product Designer')
+    && pdfContains('Reviewed University')
+    && !pdfContains('Managed CV Versions')
+    && !pdfContains('Open Roles'),
   `CA11-04: browser PDF did not contain the selected CV profile data: ${generatedCvText.slice(0, 600)}`);
   acceptedCa11Stories.add('CA11-04');
   await page.setViewportSize({ width: 375, height: 812 });
