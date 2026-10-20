@@ -32,6 +32,7 @@ test('interview invitations preserve response actions while translating statuses
 test('interview cards expose physical locations and distinguish terminal statuses', () => {
   assert.match(page, /isCompleted\s*\?\s*t\('Completed'\)/);
   assert.match(page, /isCancelled\s*\?\s*t\('Cancelled'\)/);
+  assert.match(page, /inv\.candidate_proposed_times && \(/);
   assert.match(page, /inv\.location && \(/);
   assert.match(page, /<MapPin aria-hidden="true"/);
   assert.match(page, /className="flex min-w-0 items-start gap-2"/);

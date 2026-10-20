@@ -355,7 +355,7 @@ export const InterviewsPage: React.FC<InterviewsPageProps> = ({ onNavigate }) =>
                         {inv.candidate_notes}"
                       </div>
                     )}
-                    {isReschedule && inv.candidate_proposed_times && (
+                    {inv.candidate_proposed_times && (
                       <div className="pt-1 text-[11px] text-amber-800">
                         <span className="font-semibold">{t('Your proposed availability:')}</span> {inv.candidate_proposed_times}
                       </div>

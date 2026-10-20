@@ -1877,7 +1877,8 @@ try {
     && await rescheduleHistoryCard.getByText('Cancelled', { exact: true }).count() === 1
     && await rescheduleHistoryCard.getByText('Friday 10:00–12:00 Asia/Dhaka', { exact: false }).count() === 1
     && await acceptedInterviewCard.getByText('Confirmed / Accepted', { exact: true }).count() === 1,
-    'Candidate interview history did not retain the reschedule request and updated accepted invitation after refresh.');
+    'Candidate interview history did not retain the reschedule request and updated accepted invitation after refresh: '
+      + JSON.stringify({ count: await interviewHistoryCards.count(), cards: await interviewHistoryCards.allInnerTexts() }));
   acceptedCa16Stories.add('CA16-08');
   const expectedCa16Stories = Array.from({ length: 8 }, (_, index) => 'CA16-' + String(index + 1).padStart(2, '0'));
   assert(expectedCa16Stories.every(storyId => acceptedCa16Stories.has(storyId)),
