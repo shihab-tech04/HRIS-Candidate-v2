@@ -1241,6 +1241,8 @@ try {
     'The Candidate desktop withdrawal history overflows the viewport.');
   await withdrawalContext.close();
 
+  await page.goto(`http://127.0.0.1:${webPort}/?view=applications&application=${application.id}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
   await page.getByText('Application History', { exact: true }).waitFor();
   await page.getByRole('region', { name: 'Application history' }).getByText('Application Submitted', { exact: true }).waitFor();
   const initialApplicationTimeline = await page.locator('body').innerText();
