@@ -901,6 +901,12 @@ try {
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   let page = await desktop.newPage();
   page.on('pageerror', error => browserErrors.push(error.message));
+  page.on('console', message => {
+    if (message.type() === 'error') browserErrors.push(`CV builder console: ${message.text()}`);
+  });
+  page.on('requestfailed', request => {
+    browserErrors.push(`CV builder request failed: ${request.url()} — ${request.failure()?.errorText || 'unknown error'}`);
+  });
   await page.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
     storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
   });
@@ -976,7 +982,11 @@ try {
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   const cvUploadInput = page.locator('input[type="file"][accept=".pdf,.doc,.docx"]');
   await cvUploadInput.setInputFiles(path.join(candidateRoot, 'tests/fixtures/candidate-cv-parsing-fixture.pdf'));
-  await page.getByRole('heading', { name: 'Review extracted details' }).waitFor({ timeout: 20000 });
+  try {
+    await page.getByRole('heading', { name: 'Review extracted details' }).waitFor({ timeout: 20000 });
+  } catch (error) {
+    throw new Error(`PDF import did not show its review form. UI=${(await page.locator('body').innerText()).slice(0, 2000)} browser errors=${browserErrors.slice(-10).join(' | ') || 'none'}`, { cause: error });
+  }
   assert(await page.getByLabel('Review full name').inputValue() === 'Mira Rani Patel'
     && await page.getByLabel('Review phone').inputValue() === '+1 415-555-0144'
     && await page.getByLabel('Review skills').inputValue() === 'Figma, User research, Accessibility'
