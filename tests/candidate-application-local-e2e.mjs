@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const candidateRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mainRoot = process.env.HRIS_MAIN_REPO_ROOT || path.resolve(candidateRoot, '../HRIS-v2');
@@ -85,6 +86,7 @@ let fixtureReady = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); checks++; };
 const acceptedCa14Stories = new Set();
 const acceptedCa10Stories = new Set();
+const acceptedCa11Stories = new Set();
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 const organizationDateTime = daysAhead => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -1063,6 +1065,113 @@ try {
   assert(expectedCa10Stories.every(storyId => acceptedCa10Stories.has(storyId)),
     `Not all canonical CV Parsing stories have runtime evidence: ${expectedCa10Stories.filter(storyId => !acceptedCa10Stories.has(storyId)).join(', ')}`);
   process.stdout.write(`CANDIDATE_CA10_STORY_EVIDENCE PASS=5 FAIL=0 stories=${expectedCa10Stories.join(',')} parser=browser-local original=private-owner-bound profile_update=explicit-existing-rpc viewports=375+1280\n`);
+
+  // CA11: build a candidate-owned CV from the saved profile, edit supported
+  // profile/summary sections through existing contracts, and verify the PDF.
+  await page.getByRole('heading', { name: 'Structured CV Builder & Manager' }).waitFor({ timeout: 20000 });
+  await page.getByPlaceholder('Version title (e.g. Lead Architect CV)').fill('C1 profile CV');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByText('C1 profile CV', { exact: true }).waitFor({ timeout: 20000 });
+  const profileBuiltCv = await admin.from('candidate_cvs')
+    .select('id,candidate_user_id,title,custom_summary,document_url')
+    .eq('candidate_user_id', users[0].id).eq('title', 'C1 profile CV').single();
+  assert(!profileBuiltCv.error && profileBuiltCv.data.candidate_user_id === users[0].id
+    && profileBuiltCv.data.custom_summary === importedProfile.data.bio
+    && profileBuiltCv.data.document_url === null,
+  `CA11-01: profile CV was not saved through the existing owner-scoped candidate_cvs contract: ${JSON.stringify(profileBuiltCv.error)}`);
+  acceptedCa11Stories.add('CA11-01');
+
+  const cvPreview = page.locator('[data-candidate-cv-print]');
+  await cvPreview.getByRole('heading', { name: 'Mira Rani Patel Reviewed' }).waitFor({ timeout: 20000 });
+  assert(await cvPreview.getByText('Senior Product Designer', { exact: true }).count() === 1
+    && await cvPreview.getByText('Accessibility', { exact: true }).count() === 1
+    && await cvPreview.getByText('Lead Product Designer', { exact: true }).count() === 1
+    && await cvPreview.getByText('Reviewed University', { exact: true }).count() === 1,
+  'CA11-02: CV preview did not show the saved profile headline, skills, experience and education.');
+  acceptedCa11Stories.add('CA11-02');
+
+  const tailoredCvSummary = 'Selected CV summary for the platform design role.';
+  await page.getByPlaceholder('Summary statement...').fill(tailoredCvSummary);
+  await page.getByRole('button', { name: 'Save CV Version' }).click();
+  await page.getByText('CV record and custom summary saved to HRMIS.', { exact: true }).waitFor({ timeout: 20000 });
+  const savedProfileBuiltCv = await admin.from('candidate_cvs')
+    .select('custom_summary').eq('id', profileBuiltCv.data.id).single();
+  assert(!savedProfileBuiltCv.error && savedProfileBuiltCv.data.custom_summary === tailoredCvSummary,
+    `CA11-03: selected CV summary did not persist through the existing candidate_cvs contract: ${JSON.stringify(savedProfileBuiltCv.error)}`);
+
+  await page.getByRole('button', { name: 'Edit profile details' }).click();
+  await page.getByRole('heading', { name: 'Reusable Candidate Profile' }).waitFor({ timeout: 20000 });
+  const selectedHeadline = 'Candidate platform designer';
+  const selectedLocation = 'Dhaka, Bangladesh';
+  await page.getByLabel('Professional Headline *').fill(selectedHeadline);
+  await page.getByLabel('Current Location *').fill(selectedLocation);
+  await page.getByRole('button', { name: 'Save Profile Changes' }).click();
+  await page.getByRole('status').getByText('Profile successfully updated in Synesis HRMIS.', { exact: true }).waitFor({ timeout: 20000 });
+  const selectedProfile = await admin.from('candidate_profiles')
+    .select('headline,current_location').eq('user_id', users[0].id).single();
+  assert(!selectedProfile.error && selectedProfile.data.headline === selectedHeadline
+    && selectedProfile.data.current_location === selectedLocation,
+  `CA11-03: supported profile sections did not persist through candidate_update_profile: ${JSON.stringify(selectedProfile.error)}`);
+  await page.getByRole('button', { name: 'CV & Documents' }).click();
+  await page.getByRole('heading', { name: 'Structured CV Builder & Manager' }).waitFor({ timeout: 20000 });
+  await page.getByText('C1 profile CV', { exact: true }).first().click();
+  const savedSummaryField = page.getByPlaceholder('Summary statement...');
+  await page.waitForFunction(expected => {
+    const field = document.querySelector('textarea[placeholder="Summary statement..."]');
+    return field instanceof HTMLTextAreaElement && field.value === expected;
+  }, tailoredCvSummary, { timeout: 20000 });
+  const updatedCvPreview = page.locator('[data-candidate-cv-print]');
+  await updatedCvPreview.getByText(selectedHeadline, { exact: true }).waitFor({ timeout: 20000 });
+  assert(await savedSummaryField.inputValue() === tailoredCvSummary
+    && await updatedCvPreview.getByText(selectedLocation, { exact: true }).count() === 1,
+  'CA11-05: selected CV content did not stay consistent with the saved summary and current selected profile.');
+  const foreignCandidateCvRead = await users[1].client.from('candidate_cvs')
+    .select('id').eq('id', profileBuiltCv.data.id);
+  assert(!foreignCandidateCvRead.error && foreignCandidateCvRead.data.length === 0,
+    `CA11-05: a different tenant candidate could read the CV record: ${JSON.stringify(foreignCandidateCvRead.error || foreignCandidateCvRead.data)}`);
+  acceptedCa11Stories.add('CA11-03');
+  acceptedCa11Stories.add('CA11-05');
+
+  await page.evaluate(() => {
+    window.__candidateCvPrintRequested = false;
+    window.print = () => { window.__candidateCvPrintRequested = true; };
+  });
+  await page.getByRole('button', { name: 'Print / Save PDF' }).click();
+  assert(await page.evaluate(() => window.__candidateCvPrintRequested === true),
+    'CA11-04: the CV export action did not open the browser print/save-to-PDF flow.');
+  const cvPdfBytes = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true });
+  const cvPdf = await getDocument({ data: new Uint8Array(cvPdfBytes) }).promise;
+  const cvPdfText = [];
+  for (let pageNumber = 1; pageNumber <= cvPdf.numPages; pageNumber++) {
+    const pdfPage = await cvPdf.getPage(pageNumber);
+    const textContent = await pdfPage.getTextContent();
+    cvPdfText.push(...textContent.items.map(item => 'str' in item ? item.str : ''));
+  }
+  await cvPdf.destroy();
+  const generatedCvText = cvPdfText.join(' ').replace(/\s+/g, ' ');
+  assert(cvPdfBytes.byteLength > 1000
+    && generatedCvText.includes('Mira Rani Patel Reviewed')
+    && generatedCvText.includes(selectedHeadline)
+    && generatedCvText.includes(tailoredCvSummary)
+    && generatedCvText.includes(selectedLocation)
+    && generatedCvText.includes('Accessibility')
+    && generatedCvText.includes('Lead Product Designer')
+    && generatedCvText.includes('Reviewed University')
+    && !generatedCvText.includes('Managed CV Versions')
+    && !generatedCvText.includes('Open Roles'),
+  `CA11-04: browser PDF did not contain the selected CV profile data: ${generatedCvText.slice(0, 600)}`);
+  acceptedCa11Stories.add('CA11-04');
+  await page.setViewportSize({ width: 375, height: 812 });
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The CV builder controls or selected content overflow the 375px mobile viewport.');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The CV builder overflows the 1280px desktop viewport.');
+
+  const expectedCa11Stories = ['CA11-01','CA11-02','CA11-03','CA11-04','CA11-05'];
+  assert(expectedCa11Stories.every(storyId => acceptedCa11Stories.has(storyId)),
+    `Not all canonical CV Builder stories have runtime evidence: ${expectedCa11Stories.filter(storyId => !acceptedCa11Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA11_STORY_EVIDENCE PASS=5 FAIL=0 stories=${expectedCa11Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520 cv_contract=candidate_cvs+candidate_update_profile pdf=browser-generated owner=synthetic-auth foreign-tenant-denied viewports=375+1280\n`);
 
   const applicationSnapshotAfterProfileEdit = await admin.from('job_applications')
     .select('id,tenant_id,job_id,candidate_user_id,stage,full_name,email,phone,cv_url,application_data,applied_at')

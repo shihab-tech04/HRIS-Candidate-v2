@@ -49,6 +49,22 @@ test('all canonical CA14 job-application stories have a concrete local Auth/Post
   assert.match(localJourney, /expectedCa14Stories\.every\(storyId => acceptedCa14Stories\.has\(storyId\)\)/);
 });
 
+test('canonical CA11 CV Builder stories are covered only through the existing candidate CV and profile contracts', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(item => item.module_id === 'CA11');
+  assert.deepEqual(stories.map(story => story.story_id), ['CA11-01','CA11-02','CA11-03','CA11-04','CA11-05']);
+  assert.match(localJourney, /candidate_cvs/);
+  assert.match(localJourney, /candidate_update_profile/);
+  for (const story of stories) {
+    assert.ok(story.verbatim_requirement?.startsWith('As a candidate,'), `${story.story_id} retains its original source requirement.`);
+    assert.match(localJourney, new RegExp(`acceptedCa11Stories\\.add\\(['"]${story.story_id}['"]\\)`),
+      `${story.story_id} is marked only at its Auth/Postgres browser evidence assertion.`);
+  }
+  assert.match(localJourney, /CANDIDATE_CA11_STORY_EVIDENCE PASS=5 FAIL=0/);
+  assert.match(localJourney, /expectedCa11Stories\.every\(storyId => acceptedCa11Stories\.has\(storyId\)\)/);
+  assert.match(localJourney, /getDocument\(\{ data: new Uint8Array\(cvPdfBytes\) \}\)/);
+});
+
 test('server drafts resume application fields and document selections without contact PII', () => {
   assert.match(page, /loadVerifiedApplicationDraft/);
   assert.match(page, /saveVerifiedApplicationDraft/);

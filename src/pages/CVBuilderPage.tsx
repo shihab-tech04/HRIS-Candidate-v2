@@ -221,17 +221,25 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigate('profile')}
+              className="min-h-11 py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+            >
+              <FileText className="w-3.5 h-3.5 text-slate-500" />
+              Edit profile details
+            </button>
             <button
               onClick={handlePrintCV}
-              className="py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+              className="min-h-11 py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
             >
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               Print / Save PDF
             </button>
             <button
               onClick={handleSaveStructuredCV}
-              className="py-2 px-4 bg-[#085587] text-white hover:bg-[#074771] rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+              className="min-h-11 py-2 px-4 bg-[#085587] text-white hover:bg-[#074771] rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               Save CV Version
@@ -515,7 +523,7 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
               </section>
             )}
 
-            <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0">
+            <div data-candidate-cv-print className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0">
               {/* Printable Header */}
               <div className="border-b border-slate-200 pb-6 space-y-2">
                 <div className="flex items-center justify-between">
@@ -548,8 +556,11 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
                   value={cvData.summary || ''}
                   onChange={(e) => setCvData({ ...cvData, summary: e.target.value })}
                   placeholder="Summary statement..."
-                  className="w-full p-2 text-xs border border-transparent hover:border-slate-200 focus:border-[#085587] rounded-lg focus:outline-none transition-colors"
+                  className="w-full p-2 text-xs border border-transparent hover:border-slate-200 focus:border-[#085587] rounded-lg focus:outline-none transition-colors print:hidden"
                 />
+                <p className="hidden whitespace-pre-wrap text-xs leading-relaxed text-slate-600 print:block">
+                  {cvData.summary || ''}
+                </p>
               </div>
 
               {/* Skills */}
