@@ -1968,9 +1968,10 @@ try {
     'Candidate desktop interview-completion history exposed a recruiter-only note.');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop application history overflows the viewport.');
 
-  const actionableApplicationCard = page.getByRole('button', { name: /Application history for Senior Systems Engineer/ });
+  const actionableApplicationCard = page.locator(`[aria-controls="application-history-${application.id}"]`);
   if (await actionableApplicationCard.getAttribute('aria-expanded') !== 'true') await actionableApplicationCard.click();
-  await actionableApplicationCard.getByRole('button', { name: 'Check Interviews', exact: true }).click();
+  const actionableApplicationHistory = page.locator(`#application-history-${application.id}`);
+  await actionableApplicationHistory.getByRole('button', { name: 'Check Interviews', exact: true }).click();
   await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: 'My Applications', exact: true }).first().click();
   await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
