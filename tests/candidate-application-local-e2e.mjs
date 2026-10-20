@@ -84,6 +84,7 @@ let checks = 0;
 let fixtureReady = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); checks++; };
 const acceptedCa14Stories = new Set();
+const acceptedCa10Stories = new Set();
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 const organizationDateTime = daysAhead => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -968,21 +969,86 @@ try {
   assert(!applicationSnapshotBeforeProfileEdit.error, 'Submitted application snapshot could not be read before the profile edit.');
   const preservedApplicationFields = ['id','tenant_id','job_id','candidate_user_id','stage','full_name','email','phone','cv_url','application_data','applied_at'];
   const snapshotBeforeProfileEdit = Object.fromEntries(preservedApplicationFields.map(key => [key, applicationSnapshotBeforeProfileEdit.data[key]]));
-  const changedCandidateProfile = await users[0].client.rpc('candidate_update_profile', {
-    p_payload: {
-      full_name: profileBeforeApplicationEdit.data.full_name ?? '',
-      phone: profileBeforeApplicationEdit.data.phone ?? '',
-      current_location: profileBeforeApplicationEdit.data.current_location ?? '',
-      years_experience: profileBeforeApplicationEdit.data.years_experience == null ? '' : String(profileBeforeApplicationEdit.data.years_experience),
-      headline: 'Candidate A profile updated after application submission',
-      bio: profileBeforeApplicationEdit.data.bio ?? '',
-      skills: profileBeforeApplicationEdit.data.skills ?? [],
-      profile_data: profileBeforeApplicationEdit.data.profile_data ?? {},
-      onboarding_completed: profileBeforeApplicationEdit.data.onboarding_completed ?? false,
-    },
-  });
-  assert(!changedCandidateProfile.error && changedCandidateProfile.data?.headline === 'Candidate A profile updated after application submission',
-    `Candidate profile edit did not persist through the authenticated profile RPC: ${JSON.stringify(changedCandidateProfile.error)}`);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(`http://127.0.0.1:${webPort}/?view=cv-builder`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Structured CV Builder & Manager' }).waitFor({ timeout: 20000 });
+  await page.getByPlaceholder('Version title (e.g. Lead Architect CV)').fill('C1 parser CV');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const cvUploadInput = page.locator('input[type="file"][accept=".pdf,.doc,.docx"]');
+  await cvUploadInput.setInputFiles(path.join(candidateRoot, 'tests/fixtures/candidate-cv-parsing-fixture.pdf'));
+  await page.getByRole('heading', { name: 'Review extracted details' }).waitFor({ timeout: 20000 });
+  assert(await page.getByLabel('Review full name').inputValue() === 'Mira Rani Patel'
+    && await page.getByLabel('Review phone').inputValue() === '+1 415-555-0144'
+    && await page.getByLabel('Review skills').inputValue() === 'Figma, User research, Accessibility'
+    && await page.getByLabel('Review experience 1 role').inputValue() === 'Senior Product Designer'
+    && await page.getByLabel('Review education 1 institution').inputValue() === 'Example University',
+  'CA10-01: PDF parsing did not extract candidate contact, skills, work and education data.');
+  acceptedCa10Stories.add('CA10-01');
+  assert(await page.getByLabel('Review summary').inputValue() === 'Design systems lead with 8 years of experience.'
+    && await page.getByLabel('Review CV email').inputValue() === 'mira.patel@example.test',
+  'CA10-02: extracted fields were not rendered in the review form.');
+  const profileBeforeReview = await admin.from('candidate_profiles').select('full_name,phone,bio').eq('user_id', users[0].id).single();
+  assert(!profileBeforeReview.error && profileBeforeReview.data.full_name === profileBeforeApplicationEdit.data.full_name
+    && profileBeforeReview.data.phone === profileBeforeApplicationEdit.data.phone,
+  'CA10-02: parsing modified the profile before the candidate reviewed it.');
+  acceptedCa10Stories.add('CA10-02');
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The CV parsing review form overflows the 375px mobile viewport.');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The CV parsing review form overflows the desktop viewport.');
+  await page.getByLabel('Review full name').fill('Mira Rani Patel Reviewed');
+  await page.getByLabel('Review CV email').fill('mira.reviewed@example.test');
+  await page.getByLabel('Review experience 1 role').fill('Lead Product Designer');
+  await page.getByLabel('Review education 1 institution').fill('Reviewed University');
+  assert(await page.getByLabel('Review full name').inputValue() === 'Mira Rani Patel Reviewed'
+    && await page.getByLabel('Review experience 1 role').inputValue() === 'Lead Product Designer',
+  'CA10-03: extracted fields could not be corrected before saving.');
+  acceptedCa10Stories.add('CA10-03');
+
+  const parserCvBeforeProfileSave = await admin.from('candidate_cvs')
+    .select('id,title,document_url,custom_summary').eq('candidate_user_id', users[0].id).eq('title', 'C1 parser CV').single();
+  assert(!parserCvBeforeProfileSave.error && parserCvBeforeProfileSave.data.document_url?.startsWith(`${users[0].id}/cv/`),
+    `CA10-05: original uploaded CV was not privately registered: ${JSON.stringify(parserCvBeforeProfileSave.error)}`);
+  const parserCvObjectPath = parserCvBeforeProfileSave.data.document_url;
+  const parserCvObjectsBeforeProfileSave = await admin.storage.from('candidate-documents').list(`${users[0].id}/cv`);
+  assert(!parserCvObjectsBeforeProfileSave.error && parserCvObjectsBeforeProfileSave.data.some(file => file.name === parserCvObjectPath.split('/').at(-1)),
+    'CA10-05: original uploaded CV object was missing from the private storage bucket.');
+  const candidateBCannotReadParserCv = await users[1].client.from('candidate_cvs').select('id').eq('id', parserCvBeforeProfileSave.data.id);
+  const candidateBCannotSignParserCv = await users[1].client.storage.from('candidate-documents').createSignedUrl(parserCvObjectPath, 60);
+  assert(!candidateBCannotReadParserCv.error && candidateBCannotReadParserCv.data.length === 0
+    && !candidateBCannotSignParserCv.data?.signedUrl,
+  'CA10-05: another tenant candidate could read or sign the imported CV.');
+  acceptedCa10Stories.add('CA10-05');
+
+  await page.getByRole('button', { name: 'Update my profile with reviewed details' }).click();
+  await page.getByRole('status').filter({ hasText: 'Reviewed CV details were saved to your candidate profile.' }).waitFor({ timeout: 20000 });
+  const importedProfile = await admin.from('candidate_profiles')
+    .select('full_name,phone,headline,bio,skills,profile_data').eq('user_id', users[0].id).single();
+  assert(!importedProfile.error && importedProfile.data.full_name === 'Mira Rani Patel Reviewed'
+    && importedProfile.data.phone === '+1 415-555-0144'
+    && importedProfile.data.headline === 'Senior Product Designer'
+    && importedProfile.data.bio === 'Design systems lead with 8 years of experience.'
+    && importedProfile.data.skills.includes('Accessibility')
+    && importedProfile.data.profile_data.experiences[0].title === 'Lead Product Designer'
+    && importedProfile.data.profile_data.educations[0].institution === 'Reviewed University'
+    && importedProfile.data.profile_data.marker === 'application-Candidate A',
+  `CA10-04: the reviewed profile fields did not persist through the existing candidate_update_profile contract: ${JSON.stringify(importedProfile.error)}`);
+  const candidateAuthAfterImport = await users[0].client.auth.getUser();
+  assert(!candidateAuthAfterImport.error && candidateAuthAfterImport.data.user.email === users[0].email,
+    'CA10-04: importing a CV changed the candidate sign-in email.');
+  acceptedCa10Stories.add('CA10-04');
+  const parserCvAfterProfileSave = await admin.from('candidate_cvs')
+    .select('document_url,custom_summary').eq('id', parserCvBeforeProfileSave.data.id).single();
+  const parserCvObjectsAfterProfileSave = await admin.storage.from('candidate-documents').list(`${users[0].id}/cv`);
+  assert(!parserCvAfterProfileSave.error && parserCvAfterProfileSave.data.document_url === parserCvObjectPath
+    && parserCvObjectsAfterProfileSave.data.some(file => file.name === parserCvObjectPath.split('/').at(-1)),
+  'CA10-05: applying parsed fields changed or removed the original uploaded file.');
+  const expectedCa10Stories = ['CA10-01','CA10-02','CA10-03','CA10-04','CA10-05'];
+  assert(expectedCa10Stories.every(storyId => acceptedCa10Stories.has(storyId)),
+    `Not all canonical CV Parsing stories have runtime evidence: ${expectedCa10Stories.filter(storyId => !acceptedCa10Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA10_STORY_EVIDENCE PASS=5 FAIL=0 stories=${expectedCa10Stories.join(',')} parser=browser-local original=private-owner-bound profile_update=explicit-existing-rpc viewports=375+1280\n`);
+
   const applicationSnapshotAfterProfileEdit = await admin.from('job_applications')
     .select('id,tenant_id,job_id,candidate_user_id,stage,full_name,email,phone,cv_url,application_data,applied_at')
     .eq('id', application.id).single();
