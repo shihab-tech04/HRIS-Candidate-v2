@@ -1975,9 +1975,10 @@ try {
   await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: 'My Applications', exact: true }).first().click();
   await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
-  const returnedApplicationCard = page.getByRole('button', { name: /Application history for Senior Systems Engineer/ });
+  const returnedApplicationCard = page.locator(`[aria-controls="application-history-${application.id}"]`);
   await returnedApplicationCard.click();
-  await returnedApplicationCard.getByRole('button', { name: 'Assessments & Documents', exact: true }).click();
+  const returnedApplicationDetails = page.locator(`#application-history-${application.id}`).locator('xpath=..');
+  await returnedApplicationDetails.getByRole('button', { name: 'Assessments & Documents', exact: true }).click();
   await page.getByRole('heading', { name: 'Assessments & Document Requests' }).waitFor({ timeout: 20000 });
   acceptedCa15Stories.add('CA15-05');
   const expectedCa15Stories = Array.from({ length: 8 }, (_, index) => `CA15-${String(index + 1).padStart(2, '0')}`);
