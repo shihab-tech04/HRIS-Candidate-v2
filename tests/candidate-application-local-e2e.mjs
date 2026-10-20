@@ -87,6 +87,7 @@ const assert = (condition, message) => { if (!condition) throw new Error(message
 const acceptedCa14Stories = new Set();
 const acceptedCa10Stories = new Set();
 const acceptedCa11Stories = new Set();
+const acceptedCa12Stories = new Set();
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 const organizationDateTime = daysAhead => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -560,6 +561,7 @@ try {
   assert(!candidateASavedJob.error && candidateASavedJob.data.candidate_user_id === users[0].id
     && candidateASavedJob.data.job_id === jobId && Boolean(candidateASavedJob.data.saved_at),
   `Candidate save action did not persist to the owner-bound local table: ${JSON.stringify(candidateASavedJob.error)}`);
+  acceptedCa12Stories.add('CA12-01');
   const duplicateCandidateSave = await users[0].client.from('candidate_saved_jobs')
     .insert({ candidate_user_id: users[0].id, job_id: jobId });
   assert(duplicateCandidateSave.error?.code === '23505', 'Duplicate candidate saved-job pairs were not denied by the database unique key.');
@@ -576,6 +578,19 @@ try {
   await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
   await mobilePage.getByRole('heading', { name: 'My saved jobs' }).waitFor({ timeout: 20000 });
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByRole('button', { name: 'Remove', exact: true }).click();
+  await mobilePage.getByText('No saved jobs yet.', { exact: true }).waitFor({ timeout: 20000 });
+  const removedAtSavedJobsStart = await admin.from('candidate_saved_jobs').select('id')
+    .eq('candidate_user_id', users[0].id).eq('job_id', jobId);
+  assert(!removedAtSavedJobsStart.error && removedAtSavedJobsStart.data.length === 0,
+    'Removing a saved job from the saved-jobs page did not persist its deletion.');
+  acceptedCa12Stories.add('CA12-02');
+
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('button', { name: 'Save Senior Systems Engineer for later' }).click();
+  await mobilePage.getByRole('status').filter({ hasText: 'Senior Systems Engineer was saved to your account.' }).waitFor({ timeout: 20000 });
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
   assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile saved-jobs list overflows the viewport.');
   await mobilePage.reload({ waitUntil: 'domcontentloaded' });
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
@@ -590,6 +605,25 @@ try {
   await secondCandidatePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
   assert(!(await secondCandidatePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Second-client saved-jobs view overflows the desktop viewport.');
   await secondCandidateClient.close();
+  acceptedCa12Stories.add('CA12-03');
+
+  const closedSavedJob = await admin.from('candidate_published_jobs')
+    .update({ status: 'closed', is_published: false, is_active: false }).eq('id', jobId).select('id').single();
+  assert(!closedSavedJob.error && closedSavedJob.data.id === jobId,
+    `Could not prepare a closed saved vacancy in the disposable projection: ${JSON.stringify(closedSavedJob.error)}`);
+  await mobilePage.reload({ waitUntil: 'domcontentloaded' });
+  await mobilePage.getByText('This saved vacancy is no longer published.', { exact: true }).waitFor({ timeout: 20000 });
+  acceptedCa12Stories.add('CA12-04');
+  const reopenedSavedJob = await admin.from('candidate_published_jobs')
+    .update({ status: 'published', is_published: true, is_active: true }).eq('id', jobId).select('id').single();
+  assert(!reopenedSavedJob.error && reopenedSavedJob.data.id === jobId,
+    `Could not restore the open synthetic vacancy after CA12-04: ${JSON.stringify(reopenedSavedJob.error)}`);
+  await mobilePage.reload({ waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  const expectedCa12Stories = ['CA12-01','CA12-02','CA12-03','CA12-04'];
+  assert(expectedCa12Stories.every(storyId => acceptedCa12Stories.has(storyId)),
+    `Not all canonical Saved Jobs stories have runtime evidence: ${expectedCa12Stories.filter(storyId => !acceptedCa12Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA12_STORY_EVIDENCE PASS=4 FAIL=0 stories=${expectedCa12Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520 contract=candidate_saved_jobs+candidate_published_jobs owner=synthetic-auth foreign-tenant-denied anonymous-denied closed-labelled viewports=375+1280\n`);
 
   await mobilePage.getByRole('heading', { name: 'Create a job alert' }).waitFor({ timeout: 20000 });
   const jobAlertEndpoint = /\/rest\/v1\/candidate_job_alerts(?:\?.*)?$/;

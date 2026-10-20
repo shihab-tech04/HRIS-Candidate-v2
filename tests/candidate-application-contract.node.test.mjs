@@ -8,6 +8,7 @@ import { adaptLiveApplication } from '../src/lib/recruitmentAdapters.ts';
 import { translateCandidateText } from '../src/lib/candidateLocale.ts';
 
 const page = readFileSync(new URL('../src/pages/VerifiedApplyPage.tsx', import.meta.url), 'utf8');
+const savedJobsPage = readFileSync(new URL('../src/pages/VerifiedSavedJobsPage.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../src/lib/api.ts', import.meta.url), 'utf8');
 const localJourney = readFileSync(new URL('./candidate-application-local-e2e.mjs', import.meta.url), 'utf8');
 const localFixture = readFileSync(new URL('./candidate-application-local-fixture.sql', import.meta.url), 'utf8');
@@ -63,6 +64,30 @@ test('canonical CA11 CV Builder stories are covered only through the existing ca
   assert.match(localJourney, /CANDIDATE_CA11_STORY_EVIDENCE PASS=5 FAIL=0/);
   assert.match(localJourney, /expectedCa11Stories\.every\(storyId => acceptedCa11Stories\.has\(storyId\)\)/);
   assert.match(localJourney, /getDocument\(\{ data: new Uint8Array\(cvPdfBytes\) \}\)/);
+});
+
+test('canonical CA12 Saved Jobs stories use the existing owner-scoped saved-job table and published-job projection', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(item => item.module_id === 'CA12');
+  assert.deepEqual(stories.map(story => story.story_id), ['CA12-01','CA12-02','CA12-03','CA12-04']);
+  assert.deepEqual(stories.map(story => story.verbatim_requirement), [
+    'As a candidate, I want to save an open job.',
+    'As a candidate, I want to remove a saved job.',
+    'As a candidate, I want to see saved jobs later.',
+    'As a candidate, I want closed saved jobs identified clearly.',
+  ]);
+  assert.match(api, /from\('candidate_saved_jobs'\)\.select\('job_id'\)/);
+  assert.match(api, /from\('candidate_saved_jobs'\)\s*\.insert\(\{candidate_user_id:userId,job_id:jobId\}\)/);
+  assert.match(api, /from\('candidate_published_jobs'\)\.select\('\*'\)[\s\S]*?\.eq\('status', 'published'\)[\s\S]*?\.eq\('is_published', true\)[\s\S]*?\.eq\('is_active', true\)/);
+  assert.match(savedJobsPage, /This saved vacancy is no longer published\./);
+  assert.match(localFixture, /c1_apply_saved_jobs_select_own[\s\S]*?candidate_user_id=\(SELECT auth\.uid\(\)\)/);
+  for (const story of stories) {
+    assert.match(localJourney, new RegExp(`acceptedCa12Stories\\.add\\(['"]${story.story_id}['"]\\)`),
+      `${story.story_id} is marked at its signed-in synthetic browser and database assertion.`);
+  }
+  assert.match(localJourney, /CANDIDATE_CA12_STORY_EVIDENCE PASS=4 FAIL=0/);
+  assert.match(localJourney, /expectedCa12Stories\.every\(storyId => acceptedCa12Stories\.has\(storyId\)\)/);
+  assert.match(localJourney, /closed saved vacancy in the disposable projection/);
 });
 
 test('server drafts resume application fields and document selections without contact PII', () => {
