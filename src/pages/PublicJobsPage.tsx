@@ -248,6 +248,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                     <button
                       key={dept}
                       type="button"
+                      aria-pressed={department === dept}
                       onClick={() => setDepartment(dept)}
                       className={`px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                         department === dept
@@ -304,7 +305,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
             <h2 className="text-lg font-bold text-slate-900">
               {t('Published Career Opportunities')}
             </h2>
-            <p className="text-xs text-slate-500">
+            <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-slate-500">
               {loading ? t('Fetching active vacancies...') : t('{count} active positions available', {
                 count: new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD').format(jobs.length),
               })}
@@ -437,8 +438,8 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                         aria-label={isSaved ? t('Remove {title} from saved jobs', { title: job.title }) : t('Save {title} for later', { title: job.title })}
                         aria-pressed={isSaved}
                         aria-busy={savingJobIds.has(job.id)}
-                        disabled={savingJobIds.has(job.id)}
-                        className={`p-2 rounded-lg border transition-colors disabled:opacity-50 ${
+                        disabled={publicOnly || savingJobIds.has(job.id)}
+                        className={`p-2 rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                           isSaved
                             ? 'bg-amber-50 border-amber-200 text-amber-600'
                             : 'border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50'
@@ -453,11 +454,13 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
 
                       <button
                         type="button"
+                        disabled={publicOnly}
+                        title={publicOnly ? t('Applications will open after security testing') : undefined}
                         onClick={(e) => {
                           e.stopPropagation();
                           onApplyJob(job.id);
                         }}
-                        className="py-2 px-4 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors whitespace-nowrap shadow-sm flex items-center gap-1.5"
+                        className="py-2 px-4 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors whitespace-nowrap shadow-sm flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {t('Apply Now')}
                         <ArrowRight className="w-3 h-3" />
