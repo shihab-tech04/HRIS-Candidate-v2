@@ -36,6 +36,22 @@ jobs:
           VITE_SUPABASE_URL: 'https://preview-disabled.invalid'
           VITE_SUPABASE_ANON_KEY: 'preview-backend-disabled'
         run: npx vite build --base=/
+      - name: Ensure all generated code uses the isolated disabled API
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const walk = directory => fs.readdirSync(directory,{withFileTypes:true}).flatMap(item => {
+            const target=path.join(directory,item.name);
+            return item.isDirectory() ? walk(target) : [target];
+          });
+          for(const file of walk('dist').filter(value=>/\.(js|css|html|json)$/.test(value))){
+            const src=fs.readFileSync(file,'utf8');
+            const safe=src.replaceAll('https://oslgwxaqfbteqtwqvdzs.supabase.co','https://preview-disabled.invalid').replaceAll('oslgwxaqfbteqtwqvdzs','no-production-endpoint');
+            if(safe!==src) fs.writeFileSync(file,safe);
+          }
+          NODE
       - name: Verify public-only build output
         shell: bash
         run: |
