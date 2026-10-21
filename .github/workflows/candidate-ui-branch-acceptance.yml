@@ -16,6 +16,8 @@ jobs:
       CI: '1'
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout trusted Main HRIS source for canonical Candidate route contracts
+        run: git clone --depth 1 --branch development/hris-checkpoints https://github.com/shihab-tech04/HRIS-v2.git "$GITHUB_WORKSPACE/../HRIS-v2"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
