@@ -94,7 +94,7 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
     }
   }
 
-  const button = 'rounded-lg px-4 py-2.5 text-sm font-semibold border focus-visible:outline-[#085587] disabled:opacity-50';
+  const button = 'rounded-lg px-4 py-2.5 text-sm font-semibold border focus-visible:outline-[#085587] disabled:cursor-not-allowed disabled:opacity-50';
   return <main className="min-h-screen bg-slate-50 px-4 py-8">
     <article className="max-w-4xl mx-auto bg-white border rounded-xl p-6 space-y-5">
       <button type="button" onClick={onBack} className={button}>{t('Back to jobs')}</button>
@@ -122,10 +122,19 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
                 </ul> : <p className="text-sm text-slate-500">{t('Refer to circular.')}</p>}
               </section>)}
           <div className="flex gap-3 flex-wrap border-t pt-4">
-            <button type="button" onClick={() => onApply(job.id)} className={button + ' bg-[#085587] text-white'}>{t('Apply')}</button>
             <button
               type="button"
-              disabled={busy || loading}
+              onClick={() => onApply(job.id)}
+              disabled={publicOnly}
+              title={publicOnly ? t('Applications will open after security testing') : undefined}
+              aria-describedby={publicOnly ? 'candidate-public-safety-notice' : undefined}
+              className={button + ' bg-[#085587] text-white'}
+            >{t('Apply')}</button>
+            <button
+              type="button"
+              disabled={publicOnly || busy || loading}
+              title={publicOnly ? t('Saved jobs are unavailable during the public preview.') : undefined}
+              aria-describedby={publicOnly ? 'candidate-public-safety-notice' : undefined}
               onClick={() => void toggle()}
               aria-label={saved ? t('Remove {title} from saved jobs', { title: job.title }) : t('Save {title} for later', { title: job.title })}
               aria-pressed={saved}
