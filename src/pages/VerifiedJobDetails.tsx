@@ -23,6 +23,8 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [retrySequence, setRetrySequence] = useState(0);
+  const detailsHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const unavailableRef = useRef<HTMLParagraphElement | null>(null);
   const requestSequence = useRef(0);
   const toggleInFlight = useRef(false);
   const activeUserId = useRef(userId);
@@ -64,6 +66,12 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
     };
   }, [jobId, publicOnly, retrySequence, userId]);
 
+  useEffect(() => {
+    if (!publicOnly || loading) return;
+    if (job) detailsHeadingRef.current?.focus();
+    else if (!error) unavailableRef.current?.focus();
+  }, [error, job, loading, publicOnly]);
+
   async function toggle() {
     if (!job) return;
     if (publicOnly || !userId) {
@@ -94,7 +102,7 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
     }
   }
 
-  const button = 'rounded-lg px-4 py-2.5 text-sm font-semibold border focus-visible:outline-[#085587] disabled:cursor-not-allowed disabled:opacity-50';
+  const button = 'rounded-lg px-4 py-2.5 text-sm font-semibold border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#085587] disabled:cursor-not-allowed disabled:opacity-50';
   return <main className="min-h-screen bg-slate-50 px-4 py-8">
     <article className="max-w-4xl mx-auto bg-white border rounded-xl p-6 space-y-5">
       <button type="button" onClick={onBack} className={button}>{t('Back to jobs')}</button>
@@ -104,8 +112,14 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
       </div>}
       {status && <p role="status" aria-live="polite" className="sr-only">{t(status.key, { title: status.title })}</p>}
       {loading ? <p role="status" aria-live="polite" className="text-sm text-slate-500">{t('Loading vacancy…')}</p>
-        : !job ? <p className="text-sm text-slate-500">{t('Vacancy not available or cannot be verified.')}</p> : <>
-          <h1 className="text-2xl font-bold">{job.title}</h1>
+        : !job ? <p ref={unavailableRef} tabIndex={publicOnly ? -1 : undefined} className="text-sm text-slate-500">{t('Vacancy not available or cannot be verified.')}</p> : <>
+          <h1
+            ref={detailsHeadingRef}
+            tabIndex={publicOnly ? -1 : undefined}
+            className="text-2xl font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#085587]"
+          >
+            {job.title}
+          </h1>
           <p className="text-sm">{t(job.department)} · {job.location} · {t(job.employment_type)}</p>
           <p className="text-sm">{t('Application deadline: {date}', { date: new Date(job.application_deadline).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD') })}</p>
           {job.salary_is_public && job.published_salary_min != null && <p className="text-sm">

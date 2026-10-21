@@ -163,8 +163,20 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   return (
     <div className="min-h-screen bg-slate-50">
       {(loadError || savedJobsError) && (
-        <div role="alert" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <p className="border border-rose-200 bg-rose-50 text-rose-800 rounded-lg p-3 text-sm">{t(loadError || savedJobsError || '')}</p>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="border border-rose-200 bg-rose-50 text-rose-800 rounded-lg p-3 text-sm flex flex-wrap items-center justify-between gap-3">
+            <p role="alert">{t(loadError || savedJobsError || '')}</p>
+            {loadError && (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => setSearchVersion(version => version + 1)}
+                className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 font-semibold text-rose-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#085587] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('Retry')}
+              </button>
+            )}
+          </div>
         </div>
       )}
       {savedJobsStatus && <p role="status" aria-live="polite" className="sr-only">{t(savedJobsStatus.key, { title: savedJobsStatus.title })}</p>}
@@ -186,7 +198,11 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
             <span className="text-xs uppercase tracking-widest font-semibold text-sky-400 mb-3 block">
               {t('Official Synesis IT Careers')}
             </span>
-            <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-6 leading-tight">
+            <h1
+              id="candidate-careers-heading"
+              tabIndex={-1}
+              className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-6 leading-tight focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+            >
               {t('Build Mission-Critical Platforms That Move Nations Forward')}
             </h1>
             <p className="text-base sm:text-lg text-slate-300 font-normal leading-relaxed mb-8">
@@ -216,7 +232,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-7 relative z-10">
         {/* Search & Filter Bar */}
         <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200/80 p-4 sm:p-5 mb-8">
-          <form onSubmit={handleSearchSubmit} className="space-y-4">
+          <form role="search" aria-label={t('Search vacancies')} onSubmit={handleSearchSubmit} className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -243,7 +259,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                 <span className="text-xs font-semibold text-slate-500 mr-1 flex items-center gap-1">
                   <Filter className="w-3.5 h-3.5" /> {t('Department:')}
                 </span>
-                <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg max-w-full min-w-0">
+                <div role="group" aria-label={t('Department:')} className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg max-w-full min-w-0">
                   {departments.map((dept) => (
                     <button
                       key={dept}
@@ -306,7 +322,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
               {t('Published Career Opportunities')}
             </h2>
             <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-slate-500">
-              {loading ? t('Fetching active vacancies...') : t('{count} active positions available', {
+              {loading ? t('Fetching active vacancies...') : loadError ? null : t('{count} active positions available', {
                 count: new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD').format(jobs.length),
               })}
             </p>
@@ -327,7 +343,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
               </div>
             ))}
           </div>
-        ) : jobs.length === 0 ? (
+        ) : loadError ? null : jobs.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 my-6">
             <Briefcase className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <h3 className="text-base font-bold text-slate-800 mb-1">{t('No vacancies found')}</h3>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CandidateLocaleSwitch, useCandidateLocale } from '../context/CandidateLocaleContext';
 import { PublicJobsPage } from './PublicJobsPage';
 import VerifiedJobDetails from './VerifiedJobDetails';
@@ -11,11 +11,27 @@ import VerifiedJobDetails from './VerifiedJobDetails';
 export function PublicOnlyCareers() {
   const { t } = useCandidateLocale();
   const [jobId, setJobId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('job'));
+  const visitedJobDetails = useRef(Boolean(jobId));
   useEffect(() => {
-    const onHistory = () => setJobId(new URLSearchParams(window.location.search).get('job'));
+    const onHistory = () => {
+      const nextJobId = new URLSearchParams(window.location.search).get('job');
+      setJobId(nextJobId);
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    };
     window.addEventListener('popstate', onHistory);
     return () => window.removeEventListener('popstate', onHistory);
   }, []);
+  useEffect(() => {
+    if (jobId) {
+      visitedJobDetails.current = true;
+      return;
+    }
+    if (!visitedJobDetails.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('candidate-careers-heading')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [jobId]);
   const [notice, setNotice] = useState('');
   const openJob = (id: string) => {
     const url = new URL(window.location.href);
@@ -23,6 +39,7 @@ export function PublicOnlyCareers() {
     window.history.pushState(null, '', url.pathname + url.search + url.hash);
     setJobId(id);
     setNotice('');
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
   const backToJobs = () => {
     const url = new URL(window.location.href);
@@ -30,6 +47,7 @@ export function PublicOnlyCareers() {
     window.history.replaceState(null, '', url.pathname + url.search + url.hash);
     setJobId(null);
     setNotice('');
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
   const onUnavailable = () => setNotice('Applications, accounts and saved jobs are temporarily unavailable while candidate privacy and authorization are being verified.');
   return (

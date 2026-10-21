@@ -7,11 +7,13 @@
 ## Design-source evidence
 
 - The only Figma file referenced by the Candidate repository is the Main HRIS file `XEXLe9J1oATlITS9I5u1P9`, also cited in `docs/candidate/C1_UX_RESPONSIVE_AUDIT.md`.
-- Connected Figma metadata lists `Page 1`, `Foundations`, and `Components`. The `Page 1` metadata was inspected on 21 October 2026 (2,880,867 characters). Its named frames include HRIS and recruiter workflows; no named Candidate Careers, vacancy list/detail, candidate dashboard, registration, CV, application, interview, offer, preboarding, or profile screens were found.
+- Connected Figma metadata lists `Page 1` (`0:1`), `Foundations` (`447:39801`), and `Components` (`448:39758`). On 21 October 2026 all three pages were inspected. `Page 1` metadata was 2,880,867 characters and contains employee, manager, HR and recruiter workflows; no Candidate Careers, vacancy list/detail, Candidate dashboard, registration, CV, application, interview, offer, preboarding, or profile frame was found. `Foundations` contains design tokens; `Components` contains the Main HRMIS shell and shared HR form specimens.
 - Candidate-related labels found in that Main HRIS page (`Candidate`, `Vacant Seat`, `Resume`, and `New Application`) are not approved Candidate self-service frame mappings. In particular, Employee `New Application` frame `265:48972` is explicitly excluded.
-- Repository search found no separate Candidate Figma file or Candidate node URL. The 15 October PNGs under `docs/evidence/` are implementation captures, not design approval. Their former demo vacancy is not used as current data or a design target.
+- Candidate repository references and the read-only audit branch `audit/candidate-ux-parity-20261021` (`169b54be1d41bfff0072527474863142e3602171`) contain no separate Candidate Figma file or Candidate node URL. The Figma connection can inspect a known file key but does not expose account-wide file discovery; this finding is limited to the accessible project evidence and does not claim unlinked files were searched. The 15 October PNGs under `docs/evidence/` are implementation captures, not design approval. Their former demo vacancy is not used as current data or a design target.
 
 ## Route-to-screen map
+
+The route-by-route acceptance status, source/deployment SHAs, pagination decision, browser test boundary and WS04/WS05 handoff are recorded in `docs/quality/CANDIDATE_UI_ROUTE_ACCEPTANCE_2026-10-21.md`.
 
 | Journey | Candidate source and route | Approved Candidate frame | Production availability |
 |---|---|---|---|
@@ -40,4 +42,4 @@ WS04/WS05 need an approved Candidate design source: the Figma file and exact nod
 
 ## Preserved prior acceptance
 
-Before this packet, exact PR head `795db5117401a6404e37e164b23bcf12a06a6073` passed Candidate UI workflow run `39551170035` (run 7, 21 October 2026). The existing responsive screenshot artifact `12323686214` (`candidate-public-responsive-screenshots`, SHA-256 `9c560344fc980edf0ba4878678a602a3768124bbca4db9f8fe89046da0971e4d`) and static build artifact `12323946026` (SHA-256 `917d788077029c59b4ecb09d330d27bcc0794c1cc680ed0ac488e89c3143e2f9`) are preserved. This register does not replace that passing result; the updated acceptance run will produce new evidence on its own exact commit.
+Before the prior completion packet, exact PR head `795db5117401a6404e37e164b23bcf12a06a6073` passed Candidate UI workflow run `39551170035` (run 7). That completion packet's exact head `28260cdf73b0af312df4cf136b61942f5363b573` then passed run `39554069318` (run 8). The run 7 screenshot artifact `12323686214` (SHA-256 `9c560344fc980edf0ba4878678a602a3768124bbca4db9f8fe89046da0971e4d`) and run 8 screenshot artifact `12324732472` (SHA-256 `908f3dd18fabf6af096b104253511f8d34c2a56fcfe909a2713afb994da6e15c`) remain preserved. Current completion fixes and exact-head evidence are recorded in PR #8 and the linked route-acceptance register.
