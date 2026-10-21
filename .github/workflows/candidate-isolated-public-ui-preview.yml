@@ -19,6 +19,17 @@ jobs:
         run: npm install --include=optional --no-audit --no-fund
       - name: Verify Candidate public route contracts
         run: npm run lint
+      - name: Remove source fallback to production Supabase for preview build
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path='src/lib/supabase.ts';
+          const source=fs.readFileSync(path,'utf8');
+          const original="'https://oslgwxaqfbteqtwqvdzs.supabase.co'";
+          if (!source.includes(original)) throw new Error('Production fallback changed; re-audit before preview');
+          fs.writeFileSync(path,source.replace(original,"'https://preview-disabled.invalid'"));
+          NODE
       - name: Build Candidate-only preview with production backend disabled
         env:
           VITE_CANDIDATE_PUBLIC_ONLY: 'true'
