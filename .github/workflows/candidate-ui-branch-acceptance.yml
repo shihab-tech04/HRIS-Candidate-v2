@@ -36,7 +36,7 @@ jobs:
           set -euo pipefail
           npm install --no-save --no-package-lock --include=optional --no-audit --no-fund playwright@1.55.0
           npx playwright install --with-deps chromium
-          npx vite preview --host 127.0.0.1 --port 4175 --strictPort >"$RUNNER_TEMP/candidate-preview.log" 2>&1 &
+          npx vite preview --base=/HRIS-Candidate-v2/ --host 127.0.0.1 --port 4175 --strictPort >"$RUNNER_TEMP/candidate-preview.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" || true' EXIT
           for i in $(seq 1 30); do
