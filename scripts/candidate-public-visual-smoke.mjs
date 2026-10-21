@@ -351,6 +351,20 @@ try {
     await page.goto(expiredDetailUrl.toString(), { waitUntil: 'domcontentloaded' });
     await page.getByText('Vacancy not available or cannot be verified.').waitFor({ state: 'visible' });
     assert.equal(await page.getByRole('button', { name: 'Apply', exact: true }).count(), 0, 'expired deep link exposed an application action');
+
+    if (viewport.width === 375) {
+      await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'Switch to Bengali' }).click();
+      await page.waitForFunction(() => document.documentElement.lang === 'bn');
+      const bengaliDetailUrl = new URL(appUrl);
+      bengaliDetailUrl.searchParams.set('job', testOnlyJob.id);
+      await page.goto(bengaliDetailUrl.toString(), { waitUntil: 'domcontentloaded' });
+      await page.getByRole('heading', { name: testOnlyJob.title }).waitFor({ state: 'visible' });
+      assert.equal(await page.locator('html').getAttribute('lang'), 'bn', 'vacancy detail did not preserve the Bengali locale');
+      assert.equal(await page.getByRole('button', { name: 'আবেদন করুন', exact: true }).isDisabled(), true, 'Bengali public detail enabled Apply');
+      assert.equal(await page.getByRole('button', { name: 'TEST ONLY — synthetic UI fixture (not a real vacancy) পরে দেখার জন্য সংরক্ষণ করুন' }).isDisabled(), true, 'Bengali public detail enabled Save');
+      await page.getByRole('button', { name: 'চাকরির তালিকায় ফিরুন', exact: true }).waitFor({ state: 'visible' });
+    }
     assert.equal(api.blockedRequests.length, 0, `public view attempted a non-vacancy API request: ${JSON.stringify(api.blockedRequests)}`);
     await page.close();
   }

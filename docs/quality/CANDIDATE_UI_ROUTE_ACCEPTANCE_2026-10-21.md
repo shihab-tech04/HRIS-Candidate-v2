@@ -42,7 +42,7 @@ No route is classified APPROVED DESIGN MATCH. Public routes are source-backed fu
 - Service errors are distinct from a genuine empty result and have a retry action.
 - Vacancy selection and return-to-list navigation update the job URL, reset scroll, and place keyboard focus at the destination heading.
 - CI screenshots use an empty published-vacancy response only. Synthetic active and expired rows are used only for uncaptured browser assertions. Test APIs permit only GET candidate_published_jobs; Auth, storage, functions and all other REST operations are blocked. No test writes or private data are used.
-- EN/BN, named search landmark, department group, focus visibility, loading/error/empty states, responsive widths, expired IDs, direct private-route denial, disabled Apply/Save, and keyboard/browser-history navigation are covered by the Candidate UI workflow. The PR description records the exact source SHA, run and screenshot artifact digests.
+- EN/BN Careers and vacancy-detail presentation, named search landmark, department group, focus visibility, loading/error/empty states, responsive widths, expired IDs, direct private-route denial, disabled Apply/Save, and keyboard/browser-history navigation are covered by the Candidate UI workflow. The PR description records the exact source SHA, run and screenshot artifact digests.
 
 ## Current source and deployment evidence
 
