@@ -1,0 +1,56 @@
+name: Candidate isolated public UI preview package (no deploy)
+on:
+  push:
+    branches: ['work/candidate-public-ui-preview-20261021']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  package:
+    name: Build public-only isolated Candidate preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --include=optional --no-audit --no-fund
+      - name: Verify Candidate public route contracts
+        run: npm run lint
+      - name: Build Candidate-only preview with production backend disabled
+        env:
+          VITE_CANDIDATE_PUBLIC_ONLY: 'true'
+          VITE_SUPABASE_URL: 'https://preview-disabled.invalid'
+          VITE_SUPABASE_ANON_KEY: 'preview-backend-disabled'
+        run: npx vite build --base=/
+      - name: Verify public-only build output
+        shell: bash
+        run: |
+          test -s dist/index.html
+          test -d dist/assets
+          if grep -R -q 'oslgwxaqfbteqtwqvdzs' dist; then
+            echo 'Production HRIS URL unexpectedly present in isolated Candidate preview' >&2
+            exit 1
+          fi
+          find dist -type f -printf '%p %s bytes\n'
+      - name: Publish generated static assets to isolated preview branch only
+        shell: bash
+        run: |
+          mkdir -p preview-dist
+          cp -a dist/. preview-dist/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f preview-dist
+          if ! git diff --cached --quiet; then
+            git commit -m "build(preview): Candidate public-only static UI"
+            git push origin HEAD:work/candidate-public-ui-preview-20261021
+          fi
+      - name: Save isolated public Candidate build
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-isolated-public-preview
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
