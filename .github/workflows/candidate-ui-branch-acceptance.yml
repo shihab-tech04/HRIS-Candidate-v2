@@ -1,0 +1,37 @@
+name: Candidate Figma UI branch acceptance (no deploy)
+on:
+  push:
+    branches: [work/ws03-figma-first-20261021]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: candidate-figma-ui-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  candidate-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --include=optional --no-audit --no-fund
+      - name: TypeScript and Candidate route/auth/localization regressions
+        run: npm run lint && npm run test:routes
+      - name: Production-shaped Candidate public UI build only
+        run: |
+          VITE_CANDIDATE_PUBLIC_ONLY=true npx vite build --base=/HRIS-Candidate-v2/
+          test -s dist/index.html
+          grep -Eq 'src="/HRIS-Candidate-v2/assets/[^"]+\.js"' dist/index.html
+          grep -Eq 'href="/HRIS-Candidate-v2/assets/[^"]+\.css"' dist/index.html
+      - name: Upload disposable static build for independent inspection, never deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-public-ui-static-build
+          path: dist/
+          retention-days: 7
