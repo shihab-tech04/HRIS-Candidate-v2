@@ -41,3 +41,13 @@
 3. **CAND-UI-03**: Audit **interviews/offers/preboarding** as a linked flow; mark missing hosted recruiter APIs separately from Candidate viewer UI and local test success.
 
 **Result:** Route inventory complete; 13 route-level visual parity verdicts pending. No production/config/data writes or release.
+
+## UX-00 first source-backed route/journey trace — 2026-10-21
+
+Read-only verified current Candidate development branch `e3cb9c178cbfb66eb611c640f885a13581b50f51`: `src/lib/candidateRoutes.ts`, `src/App.tsx`, `src/pages/PublicOnlyCareers.tsx` and `src/pages/PublicJobsPage.tsx`. **No production or demo-mode assumptions.**
+
+- **CAND-UI-01 (public vacancy):** `PublicOnlyCareers` renders `PublicJobsPage` or `VerifiedJobDetails` based on the actual `?job=` query parameter. It provides an explicit back-to-jobs action and keeps account/application/saved-job actions unavailable. `PublicJobsPage` implements submitted keyword search, department, workplace and employment-type filters, loading/error status, and latest-request cancellation. **Next independent test:** browser at 375/768/1280/1920, jobs → detail → back, empty/API failure, query-history recovery, keyboard focus and EN/BN; report source and deployed SHA. **Figma frame NOT ESTABLISHED.**
+- **CAND-UI-02 (isolated authenticated flow):** Full App `parseCandidateRoute` accepts 13 IDs, preserves `?job` legacy share links, and prevents `job-details`/`apply` without job ID by returning to `jobs`. `handleApplyJob` prompts sign-in and stores a pending navigation to `apply`; on authenticated application success it navigates to `applications?application=<id>`. **Next test:** authenticated apply → submit → own-status vs anonymous/foreign-tenant rejection, back and refresh behavior. **Hosted acceptance BLOCKED under public-only production gate.**
+- **CAND-UI-03:** `interviews`, `offers`, `preboarding` exist as distinct App routes. No verified Candidate Figma journey frames were found in approved Main-oriented Figma; do not misapply employee `265:48972` New Applications. Match each route to approved Candidate frame or signed-off no-screen rationale before judging parity.
+
+**Ownership:** WS03 Candidate source/implementation and independent test packets; WS04 visual acceptance; WS02 Auth/RLS/API; WS05 protected release. No feature code, configuration, gate, data, SQL, deployment or Figma changes. All 13 Candidate visual parity verdicts remain pending actual browser/Figma comparisons.
