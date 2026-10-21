@@ -31,6 +31,30 @@ jobs:
           test -s dist/index.html
           grep -Eq 'src="/HRIS-Candidate-v2/assets/[^"]+\.js"' dist/index.html
           grep -Eq 'href="/HRIS-Candidate-v2/assets/[^"]+\.css"' dist/index.html
+      - name: Capture public-only Candidate responsive renders (local test server, no sign-in)
+        run: |
+          set -euo pipefail
+          npx --yes playwright@1.55.0 install --with-deps chromium
+          npx vite preview --host 127.0.0.1 --port 4175 --strictPort >"$RUNNER_TEMP/candidate-preview.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4175/HRIS-Candidate-v2/ >/dev/null; then break; fi
+            sleep 1
+          done
+          mkdir -p ui-evidence
+          for width_height in 375,812 768,1024 1280,900 1920,1080; do
+            width="${width_height%%,*}"
+            npx --yes playwright@1.55.0 screenshot --browser chromium --viewport-size="$width_height" --full-page --wait-for-timeout=1200 http://127.0.0.1:4175/HRIS-Candidate-v2/ "ui-evidence/candidate-public-${width}.png"
+          done
+      - name: Upload candidate responsive screenshots (synthetic public-only UI)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-public-responsive-screenshots
+          path: ui-evidence/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload disposable static build for independent inspection, never deploy
         uses: actions/upload-artifact@v4
         with:
