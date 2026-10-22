@@ -1,0 +1,54 @@
+name: Candidate new Supabase tenant-scoped QA build (no deploy)
+on:
+  push:
+    branches: [work/ws03-figma-first-20261021]
+permissions:
+  contents: read
+jobs:
+  candidate-new-db-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact Candidate source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --include=optional --no-audit --no-fund
+      - name: TypeScript and route/auth contracts
+        run: npm run lint && npm run test:routes
+      - name: Compile against verified new Supabase and explicit tenant slug
+        run: npx vite build --mode qa --base=/HRIS-Candidate-v2/
+      - name: Confirm built destination/tenant and demo isolation
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          function assets(root) {
+            return fs.readdirSync(root, {withFileTypes:true}).flatMap(x =>
+              x.isDirectory() ? assets(path.join(root,x.name)) :
+              x.name.endsWith('.js') ? [path.join(root,x.name)] : []
+            );
+          }
+          const combined=assets('dist').map(p=>fs.readFileSync(p,'utf8')).join('\n');
+          if (!combined.includes('xfuxnljfrgvusbrpvxpa.supabase.co') ||
+              !combined.includes('sb_publishable_') ||
+              !combined.includes('synesis-it')) {
+            throw new Error('Destination / publishable key / Candidate tenant mismatch');
+          }
+          if (!fs.readFileSync('.env.qa','utf8').includes('VITE_ENABLE_DEMO_MODE=false')) {
+            throw new Error('The new database QA build cannot enable demo login');
+          }
+          console.log('CANDIDATE_NEW_SUPABASE_QA_CONFIGURATION_PASS');
+          NODE
+      - name: Preserve QA bundle for independent WS04 review, never deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: hris-candidate-new-supabase-qa-build
+          path: dist/
+          if-no-files-found: error
