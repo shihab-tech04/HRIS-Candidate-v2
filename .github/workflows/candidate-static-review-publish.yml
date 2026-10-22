@@ -1,0 +1,65 @@
+name: Candidate synthetic-only static visual review — Git source
+on:
+  push:
+    branches: [review/candidate-static-web-20261022]
+    paths-ignore:
+      - 'review-site/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: candidate-offline-review-publish
+  cancel-in-progress: false
+jobs:
+  candidate-static:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --include=optional --no-audit --no-fund
+      - name: Verify Candidate public-only build with synthetic vacancies and no live Auth
+        run: |
+          npm run lint
+          VITE_CANDIDATE_PUBLIC_ONLY=true VITE_CANDIDATE_OFFLINE_REVIEW=true \
+            VITE_SUPABASE_URL=https://offline-preview.invalid \
+            VITE_SUPABASE_ANON_KEY=offline-no-account \
+            npx vite build --base=./
+      - name: Verify no production origin and correct relative asset paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          grep -Eq 'src="./assets/[^"]+\.js"' dist/index.html
+          grep -Eq 'href="./assets/[^"]+\.css"' dist/index.html
+          ! grep -R -F 'oslgwxaqfbteqtwqvdzs.supabase.co' dist/assets
+          ! grep -R -F 'https://oslgwxaqfbteqtwqvdzs.supabase.co' dist/index.html
+          test -z "$(find dist -type f -name '*.map' -print -quit)"
+      - name: Stage static Candidate review on separate non-production branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf review-site
+          mkdir -p review-site
+          cp -a dist/. review-site/
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const file = 'review-site/index.html';
+          let html = readFileSync(file, 'utf8');
+          html = html.replace('</head>', '<meta name="robots" content="noindex,nofollow,noarchive" /></head>');
+          if (!html.includes('src="./assets/') || !html.includes('href="./assets/')) {
+            throw new Error('Candidate static review must use relative assets');
+          }
+          writeFileSync(file, html);
+          NODE
+          git add -- review-site
+          if git diff --cached --quiet; then echo "Review assets unchanged"; exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'build(review): publish public-only Candidate synthetic visual assets [skip ci]'
+          git push origin HEAD:refs/heads/review/candidate-static-web-20261022
+      - name: Report publishing boundary
+        run: echo "The live Candidate production branch, domain and hosted database remain unchanged."
