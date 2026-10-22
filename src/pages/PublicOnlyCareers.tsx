@@ -67,7 +67,9 @@ export function PublicOnlyCareers() {
       <section aria-label={t('Candidate service status')} className="bg-sky-50 border-b border-sky-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
           <p id="candidate-public-safety-notice" className="text-sm text-[#085587]">
-            {t('Browse verified vacancies. Candidate registration and applications will open after security testing.')}
+            {import.meta.env.VITE_CANDIDATE_OFFLINE_REVIEW === 'true'
+              ? t('Frontend visual review only — sample vacancies. No candidate accounts, applications, or real job postings.')
+              : t('Browse verified vacancies. Candidate registration and applications will open after security testing.')}
           </p>
         </div>
       </section>
