@@ -1,0 +1,80 @@
+name: Candidate external static public-review URL verification
+on:
+  push:
+    branches: [review/candidate-static-web-20261022]
+    paths:
+      - '.github/workflows/static-preview-http-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check public HTML and relative bundle assets
+        shell: bash
+        env:
+          REVIEW_COMMIT: '125ec9b3227bf0f07bdeec05fb8aee5927bd833c'
+        run: |
+          set -euo pipefail
+          url="https://rawcdn.githack.com/shihab-tech04/HRIS-Candidate-v2/${REVIEW_COMMIT}/review-site/index.html"
+          echo "Candidate review URL: ${url}"
+          ok=''
+          for i in $(seq 1 12); do
+            if curl --fail --silent --show-error --location --max-time 15 -D /tmp/review.headers -o /tmp/review.html "${url}"; then ok=yes; break; fi
+            sleep 5
+          done
+          test "${ok}" = yes
+          grep -qi 'content-type: *text/html' /tmp/review.headers
+          grep -q 'src="./assets/' /tmp/review.html
+          grep -q 'href="./assets/' /tmp/review.html
+          for path in $(grep -oE '[.]/assets/[^"]+\.(js|css)' /tmp/review.html | sort -u); do
+            target="${url%/*}/${path#./}"
+            curl --fail --silent --show-error --location --max-time 25 -D /tmp/asset.headers -o /tmp/asset.body "${target}"
+            test -s /tmp/asset.body
+            if [[ "${path}" == *.js ]]; then
+              grep -qiE 'content-type: *(application|text)/javascript' /tmp/asset.headers
+            else
+              grep -qi 'content-type: *text/css' /tmp/asset.headers
+            fi
+            echo "Verified ${target}"
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --include=optional --no-audit --no-fund && npm install --no-save --no-package-lock --include=optional --no-audit --no-fund playwright@1.55.0
+      - name: Check live static Candidate visual review with Chromium
+        env:
+          REVIEW_COMMIT: '125ec9b3227bf0f07bdeec05fb8aee5927bd833c'
+        run: |
+          npx playwright install --with-deps chromium
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          const url = 'https://rawcdn.githack.com/shihab-tech04/HRIS-Candidate-v2/' + process.env.REVIEW_COMMIT + '/review-site/index.html';
+          const browser = await chromium.launch();
+          try {
+            const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+            const dbRequests = [];
+            const clientErrors = [];
+            page.on('request', r => { if (r.url().includes('supabase.co')) dbRequests.push(r.url()); });
+            page.on('pageerror', err => clientErrors.push(err.message));
+            const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 50000 });
+            if (res?.status() !== 200) throw new Error('External Candidate index.html returned ' + res?.status());
+            await page.getByText(/Frontend visual review only/).waitFor({ state: 'visible', timeout: 20000 });
+            await page.getByText('Senior Full-Stack Engineer', { exact: false }).first().waitFor({ state: 'visible', timeout: 20000 });
+            if (dbRequests.length) throw new Error('Candidate review sent Supabase traffic');
+            if (clientErrors.length) throw new Error('Candidate review JavaScript errors: ' + clientErrors.join(';'));
+            await page.screenshot({ path: 'public-candidate-review-1280.png', fullPage: true });
+            await page.setViewportSize({ width: 375, height: 812 });
+            await page.screenshot({ path: 'public-candidate-review-375.png', fullPage: true });
+            console.log('Verified public Candidate synthetic-only review URL and jobs render.');
+          } finally { await browser.close(); }
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verified-public-candidate-preview
+          path: public-candidate-review-*.png
+          if-no-files-found: ignore
