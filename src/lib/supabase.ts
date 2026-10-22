@@ -11,6 +11,7 @@ export const SUPABASE_ANON_KEY =
 let clientInstance: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {
+  if (import.meta.env.VITE_CANDIDATE_OFFLINE_REVIEW === 'true') return null;
   if (clientInstance) return clientInstance;
 
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
