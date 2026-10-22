@@ -280,7 +280,10 @@ export async function getPublishedJobs(params?: {
   const supabase = getSupabaseClient();
   let jobs: PublishedJob[];
 
-  if (!supabase) {
+  if (import.meta.env.VITE_CANDIDATE_OFFLINE_REVIEW === 'true') {
+    // Synthetic published-vacancy fixtures; never used in production builds.
+    jobs = INITIAL_PUBLISHED_JOBS;
+  } else if (!supabase) {
     if (!DEMO_MODE) throw new Error('Careers service is not configured. Vacancies cannot be verified.');
     jobs = getLocal<PublishedJob[]>('jobs', INITIAL_PUBLISHED_JOBS);
   } else {
