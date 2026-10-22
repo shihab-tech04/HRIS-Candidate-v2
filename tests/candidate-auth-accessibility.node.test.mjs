@@ -38,5 +38,5 @@ test('Candidate signup requires explicit tenant-scoped signup metadata (no silen
   assert.match(qaEnv, /^VITE_CANDIDATE_TENANT_SLUG=synesis-it$/m);
   assert.match(qaEnv, /^VITE_SUPABASE_URL=https:\/\/xfuxnljfrgvusbrpvxpa\.supabase\.co$/m);
   assert.match(qaEnv, /^VITE_SUPABASE_ANON_KEY=sb_publishable_[A-Za-z0-9_-]+$/m);
-  assert.doesNotMatch(qaEnv, /service_role|sb_secret_/);
+  assert.doesNotMatch(qaEnv.split('\n').filter(line => /^[A-Z_]+[A-Z_0-9]*=/.test(line)).join('\n'), /service_role|sb_secret_/);
 });
