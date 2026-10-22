@@ -62,6 +62,8 @@ jobs:
             page.on('pageerror', err => clientErrors.push(err.message));
             const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 50000 });
             if (res?.status() !== 200) throw new Error('External Candidate index.html returned ' + res?.status());
+            const continueButton = page.getByText('Open the page', { exact: true });
+            if (await continueButton.isVisible().catch(() => false)) await continueButton.click();
             await page.getByText(/Frontend visual review only/).waitFor({ state: 'visible', timeout: 20000 });
             await page.getByText('Senior Full-Stack Engineer', { exact: false }).first().waitFor({ state: 'visible', timeout: 20000 });
             if (dbRequests.length) throw new Error('Candidate review sent Supabase traffic');
