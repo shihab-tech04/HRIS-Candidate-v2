@@ -1,7 +1,7 @@
 name: Candidate Figma UI branch acceptance (no deploy)
 on:
   push:
-    branches: [work/ws03-figma-first-20261021]
+    branches: [work/ws03-figma-first-20261021, integration/candidate-figma-cv-unified-20261022]
   workflow_dispatch:
 permissions:
   contents: read
