@@ -183,13 +183,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!password) return { success: false, error: 'Password is required.' };
     const supabase = getSupabaseClient();
     if (supabase) {
+      // Use only an explicitly configured Candidate tenant; never silently default.
+      const tenantSlug = String(import.meta.env.VITE_CANDIDATE_TENANT_SLUG || '').trim();
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(tenantSlug)) {
+        return { success: false, error: 'Candidate tenant is not configured. Please contact HR support.' };
+      }
       try {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             emailRedirectTo: candidateAppRedirectTo(window.location),
-            data: { full_name: fullName }
+            data: { full_name: fullName, account_type: 'candidate', tenant_slug: tenantSlug }
           }
         });
         if (error) {
