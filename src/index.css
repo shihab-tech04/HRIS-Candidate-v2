@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Poppins', 'Noto Sans Bengali Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   --color-synesis-50: #eff7fc;
   --color-synesis-100: #dbeef9;
@@ -17,9 +17,9 @@
 }
 
 :root {
-  font-family: 'Poppins', 'Noto Sans Bengali', 'Noto Sans', 'Nirmala UI', 'Vrinda', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: 'Poppins', 'Noto Sans Bengali Variable', 'Noto Sans Bengali', 'Noto Sans', 'Nirmala UI', 'Vrinda', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 
 :lang(bn) {
-  font-family: 'Noto Sans Bengali', 'Noto Sans', 'Nirmala UI', 'Vrinda', 'Poppins', sans-serif;
+  font-family: 'Noto Sans Bengali Variable', 'Noto Sans Bengali', 'Noto Sans', 'Nirmala UI', 'Vrinda', 'Poppins', sans-serif;
 }

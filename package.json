@@ -17,6 +17,7 @@
     "test:local-application-e2e": "node tests/candidate-application-local-e2e.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/noto-sans-bengali": "^5.3.0",
     "@google/genai": "^2.4.0",
     "@supabase/supabase-js": "^2.117.3",
     "@tailwindcss/vite": "^4.3.3",
