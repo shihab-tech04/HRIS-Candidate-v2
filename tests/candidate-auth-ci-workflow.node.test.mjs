@@ -6,10 +6,10 @@ const workflow = readFileSync(new URL('../.github/workflows/candidate-auth-postg
 const releaseWorkflow = readFileSync(new URL('../.github/workflows/release-preview.yml', import.meta.url), 'utf8');
 
 test('Candidate Auth/RLS CI is disposable, trusted-branch/manual release, least-privilege, and non-deploying', () => {
-  assert.match(workflow, /branches: \[development\/hris-checkpoints, release\/candidate-stable-20261017, work\/candidate-phase06-07-20261020\]/);
+  assert.ok(workflow.includes("branches: [development/hris-checkpoints, release/candidate-stable-20261017, work/candidate-phase06-07-20261020, integration/ws05-candidate-final-review-20261022]"), "Explicit permitted disposable CI branches must include the reviewed source");
   assert.match(workflow, /main_ref:[\s\S]*?default: development\/hris-checkpoints/);
   assert.match(workflow, /github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/release\/candidate-stable-20261017' \|\| github\.ref == 'refs\/heads\/work\/candidate-phase06-07-20261020'\)/);
-  assert.match(workflow, /HRIS_MAIN_REF: \$\{\{ github\.ref == 'refs\/heads\/release\/candidate-stable-20261017' && 'release\/hris-stable-20261017' \|\| inputs\.main_ref \|\| 'development\/hris-checkpoints' \}\}/);
+  assert.ok(workflow.includes("HRIS_MAIN_REF: ${{ github.ref == 'refs/heads/integration/ws05-candidate-final-review-20261022' && 'integration/ws05-main-final-review-20261022' || github.ref == 'refs/heads/release/candidate-stable-20261017' && 'release/hris-stable-20261017' || inputs.main_ref || 'development/hris-checkpoints' }}"), "Paired main/candidate refs must be pinned for isolated acceptance");
   assert.match(workflow, /git clone --depth 1 --branch "\$HRIS_MAIN_REF"/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
   assert.match(workflow, /timeout-minutes: 45/);
