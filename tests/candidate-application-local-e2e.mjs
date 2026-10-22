@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const candidateRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mainRoot = process.env.HRIS_MAIN_REPO_ROOT || path.resolve(candidateRoot, '../HRIS-v2');
@@ -84,6 +85,12 @@ let checks = 0;
 let fixtureReady = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); checks++; };
 const acceptedCa14Stories = new Set();
+const acceptedCa15Stories = new Set();
+const acceptedCa10Stories = new Set();
+const acceptedCa11Stories = new Set();
+const acceptedCa12Stories = new Set();
+const acceptedCa13Stories = new Set();
+const acceptedCa16Stories = new Set();
 const sql = value => `'${String(value).replaceAll("'", "''")}'`;
 const organizationDateTime = daysAhead => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -557,6 +564,7 @@ try {
   assert(!candidateASavedJob.error && candidateASavedJob.data.candidate_user_id === users[0].id
     && candidateASavedJob.data.job_id === jobId && Boolean(candidateASavedJob.data.saved_at),
   `Candidate save action did not persist to the owner-bound local table: ${JSON.stringify(candidateASavedJob.error)}`);
+  acceptedCa12Stories.add('CA12-01');
   const duplicateCandidateSave = await users[0].client.from('candidate_saved_jobs')
     .insert({ candidate_user_id: users[0].id, job_id: jobId });
   assert(duplicateCandidateSave.error?.code === '23505', 'Duplicate candidate saved-job pairs were not denied by the database unique key.');
@@ -573,6 +581,19 @@ try {
   await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
   await mobilePage.getByRole('heading', { name: 'My saved jobs' }).waitFor({ timeout: 20000 });
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByRole('button', { name: 'Remove', exact: true }).click();
+  await mobilePage.getByText('No saved jobs yet.', { exact: true }).waitFor({ timeout: 20000 });
+  const removedAtSavedJobsStart = await admin.from('candidate_saved_jobs').select('id')
+    .eq('candidate_user_id', users[0].id).eq('job_id', jobId);
+  assert(!removedAtSavedJobsStart.error && removedAtSavedJobsStart.data.length === 0,
+    'Removing a saved job from the saved-jobs page did not persist its deletion.');
+  acceptedCa12Stories.add('CA12-02');
+
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('button', { name: 'Save Senior Systems Engineer for later' }).click();
+  await mobilePage.getByRole('status').filter({ hasText: 'Senior Systems Engineer was saved to your account.' }).waitFor({ timeout: 20000 });
+  await mobilePage.goto(`http://127.0.0.1:${webPort}/?view=saved-jobs`, { waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
   assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile saved-jobs list overflows the viewport.');
   await mobilePage.reload({ waitUntil: 'domcontentloaded' });
   await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
@@ -587,6 +608,25 @@ try {
   await secondCandidatePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
   assert(!(await secondCandidatePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Second-client saved-jobs view overflows the desktop viewport.');
   await secondCandidateClient.close();
+  acceptedCa12Stories.add('CA12-03');
+
+  const closedSavedJob = await admin.from('candidate_published_jobs')
+    .update({ status: 'closed', is_published: false, is_active: false }).eq('id', jobId).select('id').single();
+  assert(!closedSavedJob.error && closedSavedJob.data.id === jobId,
+    `Could not prepare a closed saved vacancy in the disposable projection: ${JSON.stringify(closedSavedJob.error)}`);
+  await mobilePage.reload({ waitUntil: 'domcontentloaded' });
+  await mobilePage.getByText('This saved vacancy is no longer published.', { exact: true }).waitFor({ timeout: 20000 });
+  acceptedCa12Stories.add('CA12-04');
+  const reopenedSavedJob = await admin.from('candidate_published_jobs')
+    .update({ status: 'published', is_published: true, is_active: true }).eq('id', jobId).select('id').single();
+  assert(!reopenedSavedJob.error && reopenedSavedJob.data.id === jobId,
+    `Could not restore the open synthetic vacancy after CA12-04: ${JSON.stringify(reopenedSavedJob.error)}`);
+  await mobilePage.reload({ waitUntil: 'domcontentloaded' });
+  await mobilePage.getByRole('heading', { name: 'Senior Systems Engineer' }).waitFor({ timeout: 20000 });
+  const expectedCa12Stories = ['CA12-01','CA12-02','CA12-03','CA12-04'];
+  assert(expectedCa12Stories.every(storyId => acceptedCa12Stories.has(storyId)),
+    `Not all canonical Saved Jobs stories have runtime evidence: ${expectedCa12Stories.filter(storyId => !acceptedCa12Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA12_STORY_EVIDENCE PASS=4 FAIL=0 stories=${expectedCa12Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520 contract=candidate_saved_jobs+candidate_published_jobs owner=synthetic-auth foreign-tenant-denied anonymous-denied closed-labelled viewports=375+1280\n`);
 
   await mobilePage.getByRole('heading', { name: 'Create a job alert' }).waitFor({ timeout: 20000 });
   const jobAlertEndpoint = /\/rest\/v1\/candidate_job_alerts(?:\?.*)?$/;
@@ -614,6 +654,14 @@ try {
     && candidateAAlert.data.employment_type === 'Full-time' && candidateAAlert.data.frequency === 'Instant'
     && candidateAAlert.data.is_active,
   `Candidate alert filters did not persist to the isolated production-shaped table: ${JSON.stringify(candidateAAlert.error)}`);
+  await mobilePage.setViewportSize({ width: 375, height: 812 });
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'Job-alert controls overflow the 375px candidate viewport.');
+  await mobilePage.setViewportSize({ width: 1280, height: 800 });
+  assert(!(await mobilePage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'Job-alert controls overflow the 1280px candidate viewport.');
+  acceptedCa13Stories.add('CA13-01');
+  acceptedCa13Stories.add('CA13-02');
   const candidateBCannotReadAlert = await users[1].client.from('candidate_job_alerts').select('id')
     .eq('candidate_user_id', users[0].id);
   assert(!candidateBCannotReadAlert.error && candidateBCannotReadAlert.data.length === 0,
@@ -627,6 +675,64 @@ try {
   const anonymousAlerts = await anon.from('candidate_job_alerts').select('id');
   assert(Boolean(anonymousAlerts.error), 'Anonymous sessions could read private candidate alerts.');
 
+  await mobilePage.getByRole('button', { name: 'Pause Platform roles in Dhaka alert' }).click();
+  await mobilePage.getByText('Instant · Paused', { exact: true }).waitFor({ timeout: 20000 });
+  const pausedCandidateAlert = await users[0].client.from('candidate_job_alerts').select('is_active')
+    .eq('id', candidateAAlert.data.id).single();
+  assert(!pausedCandidateAlert.error && pausedCandidateAlert.data.is_active === false,
+    `Pausing the alert did not persist its disabled state: ${JSON.stringify(pausedCandidateAlert.error)}`);
+  await mobilePage.getByRole('button', { name: 'Resume Platform roles in Dhaka alert' }).click();
+  await mobilePage.getByText('Instant · Active', { exact: true }).waitFor({ timeout: 20000 });
+  const resumedCandidateAlert = await users[0].client.from('candidate_job_alerts').select('is_active')
+    .eq('id', candidateAAlert.data.id).single();
+  assert(!resumedCandidateAlert.error && resumedCandidateAlert.data.is_active === true,
+    `Resuming the alert did not persist its enabled state: ${JSON.stringify(resumedCandidateAlert.error)}`);
+  acceptedCa13Stories.add('CA13-03');
+
+  const revisedAlertTitle = 'Platform roles in Dhaka - revised';
+  await mobilePage.getByRole('button', { name: 'Edit Platform roles in Dhaka alert' }).click();
+  await mobilePage.getByRole('heading', { name: 'Edit job alert' }).waitFor({ timeout: 20000 });
+  await mobilePage.getByLabel('Alert name').fill(revisedAlertTitle);
+  await mobilePage.getByLabel('Keywords').fill('Rust');
+  await mobilePage.getByRole('button', { name: 'Update job alert' }).click();
+  await mobilePage.getByRole('status').filter({ hasText: 'was updated.' }).waitFor({ timeout: 20000 });
+  const editedCandidateAlert = await admin.from('candidate_job_alerts')
+    .select('title,keywords,department,location,workplace_type,employment_type,is_active')
+    .eq('id', candidateAAlert.data.id).single();
+  assert(!editedCandidateAlert.error && editedCandidateAlert.data.title === revisedAlertTitle
+    && editedCandidateAlert.data.keywords === 'Rust' && editedCandidateAlert.data.department === 'Engineering'
+    && editedCandidateAlert.data.location === 'Dhaka' && editedCandidateAlert.data.workplace_type === 'Hybrid'
+    && editedCandidateAlert.data.employment_type === 'Full-time' && editedCandidateAlert.data.is_active,
+  `Editing the alert did not preserve and update its selected criteria: ${JSON.stringify(editedCandidateAlert.error)}`);
+  await mobilePage.getByRole('button', { name: `Remove ${revisedAlertTitle} alert` }).click();
+  await mobilePage.getByText('You have no job alerts yet.', { exact: true }).waitFor({ timeout: 20000 });
+  const deletedCandidateAlert = await users[0].client.from('candidate_job_alerts').select('id')
+    .eq('id', candidateAAlert.data.id);
+  assert(!deletedCandidateAlert.error && deletedCandidateAlert.data.length === 0,
+    'Deleting the edited alert did not persist its removal.');
+  acceptedCa13Stories.add('CA13-04');
+
+  await mobilePage.getByLabel('Alert name').fill('Platform roles in Dhaka');
+  await mobilePage.getByLabel('Keywords').fill('PostgreSQL');
+  await mobilePage.getByLabel('Department').fill('Engineering');
+  await mobilePage.getByLabel('Location').fill('Dhaka');
+  await mobilePage.getByLabel('Workplace type').selectOption('Hybrid');
+  await mobilePage.getByLabel('Employment type').selectOption('Full-time');
+  await mobilePage.getByRole('button', { name: 'Save job alert' }).click();
+  await mobilePage.getByRole('status').filter({ hasText: 'is active. Matching newly published roles' }).waitFor({ timeout: 20000 });
+  const notificationAlert = await admin.from('candidate_job_alerts')
+    .select('id,title,keywords,department,location,workplace_type,employment_type,frequency,is_active')
+    .eq('candidate_user_id', users[0].id).single();
+  assert(!notificationAlert.error && notificationAlert.data.is_active,
+    `The criteria-matching alert was not active before notification checks: ${JSON.stringify(notificationAlert.error)}`);
+
+  const retriggerNonmatchingJob = await admin.from('jobs').update({ published_at: new Date().toISOString() }).eq('id', interviewCompletedJobId);
+  if (retriggerNonmatchingJob.error) throw retriggerNonmatchingJob.error;
+  const nonmatchingJobNotification = await admin.from('candidate_notifications').select('id')
+    .eq('candidate_user_id', users[0].id).eq('notification_type', 'job_alert_match').eq('related_job_id', interviewCompletedJobId);
+  assert(!nonmatchingJobNotification.error && nonmatchingJobNotification.data.length === 0,
+    'An unrelated vacancy generated an alert notification despite the candidate criteria.');
+
   const retriggerMatchingJob = await admin.from('jobs').update({ published_at: new Date().toISOString() }).eq('id', jobId);
   if (retriggerMatchingJob.error) throw retriggerMatchingJob.error;
   const jobAlertNotification = await admin.from('candidate_notifications')
@@ -636,6 +742,11 @@ try {
     && jobAlertNotification.data.message === 'Senior Systems Engineer matches your job alert.'
     && jobAlertNotification.data.action_view === 'job-detail' && !jobAlertNotification.data.is_read,
   `Matching job trigger did not create the expected in-app notification: ${JSON.stringify(jobAlertNotification.error)}`);
+  acceptedCa13Stories.add('CA13-05');
+  const expectedCa13Stories = ['CA13-01','CA13-02','CA13-03','CA13-04','CA13-05'];
+  assert(expectedCa13Stories.every(storyId => acceptedCa13Stories.has(storyId)),
+    `Not all canonical Job Alerts stories have runtime evidence: ${expectedCa13Stories.filter(storyId => !acceptedCa13Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA13_STORY_EVIDENCE PASS=5 FAIL=0 stories=${expectedCa13Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520 contract=candidate_job_alerts+candidate_notifications owner=synthetic-auth foreign-tenant-denied anonymous-denied match-and-nonmatch-verified\n`);
   const duplicateMatchTrigger = await admin.from('jobs').update({ published_at: new Date().toISOString() }).eq('id', jobId);
   if (duplicateMatchTrigger.error) throw duplicateMatchTrigger.error;
   const matchingNotificationCount = await admin.from('candidate_notifications').select('id', { count: 'exact', head: true })
@@ -900,6 +1011,12 @@ try {
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   let page = await desktop.newPage();
   page.on('pageerror', error => browserErrors.push(error.message));
+  page.on('console', message => {
+    if (message.type() === 'error') browserErrors.push(`CV builder console: ${message.text()}`);
+  });
+  page.on('requestfailed', request => {
+    browserErrors.push(`CV builder request failed: ${request.url()} — ${request.failure()?.errorText || 'unknown error'}`);
+  });
   await page.addInitScript(({ storageKey, session }) => localStorage.setItem(storageKey, JSON.stringify(session)), {
     storageKey: `sb-${apiUrl.hostname.split('.')[0]}-auth-token`, session: users[0].session,
   });
@@ -968,21 +1085,207 @@ try {
   assert(!applicationSnapshotBeforeProfileEdit.error, 'Submitted application snapshot could not be read before the profile edit.');
   const preservedApplicationFields = ['id','tenant_id','job_id','candidate_user_id','stage','full_name','email','phone','cv_url','application_data','applied_at'];
   const snapshotBeforeProfileEdit = Object.fromEntries(preservedApplicationFields.map(key => [key, applicationSnapshotBeforeProfileEdit.data[key]]));
-  const changedCandidateProfile = await users[0].client.rpc('candidate_update_profile', {
-    p_payload: {
-      full_name: profileBeforeApplicationEdit.data.full_name ?? '',
-      phone: profileBeforeApplicationEdit.data.phone ?? '',
-      current_location: profileBeforeApplicationEdit.data.current_location ?? '',
-      years_experience: profileBeforeApplicationEdit.data.years_experience == null ? '' : String(profileBeforeApplicationEdit.data.years_experience),
-      headline: 'Candidate A profile updated after application submission',
-      bio: profileBeforeApplicationEdit.data.bio ?? '',
-      skills: profileBeforeApplicationEdit.data.skills ?? [],
-      profile_data: profileBeforeApplicationEdit.data.profile_data ?? {},
-      onboarding_completed: profileBeforeApplicationEdit.data.onboarding_completed ?? false,
-    },
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(`http://127.0.0.1:${webPort}/?view=cv-builder`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Structured CV Builder & Manager' }).waitFor({ timeout: 20000 });
+  await page.getByPlaceholder('Version title (e.g. Lead Architect CV)').fill('C1 parser CV');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const cvUploadInput = page.locator('input[type="file"][accept=".pdf,.doc,.docx"]');
+  await page.getByText('C1 parser CV', { exact: true }).waitFor({ timeout: 20000 });
+  await page.waitForFunction(() => {
+    const input = document.querySelector('input[type="file"][accept=".pdf,.doc,.docx"]');
+    return input && !input.disabled;
+  }, { timeout: 20000 });
+  await cvUploadInput.setInputFiles(path.join(candidateRoot, 'tests/fixtures/candidate-cv-parsing-fixture.pdf'));
+  try {
+    await page.getByRole('heading', { name: 'Review extracted details' }).waitFor({ timeout: 20000 });
+  } catch (error) {
+    throw new Error(`PDF import did not show its review form. UI=${(await page.locator('body').innerText()).slice(0, 2000)} browser errors=${browserErrors.slice(-10).join(' | ') || 'none'}`, { cause: error });
+  }
+  assert(await page.getByLabel('Review full name').inputValue() === 'Mira Rani Patel'
+    && await page.getByLabel('Review phone').inputValue() === '+1 415-555-0144'
+    && await page.getByLabel('Review skills').inputValue() === 'Figma, User research, Accessibility'
+    && await page.getByLabel('Review experience 1 role').inputValue() === 'Senior Product Designer'
+    && await page.getByLabel('Review education 1 institution').inputValue() === 'Example University',
+  'CA10-01: PDF parsing did not extract candidate contact, skills, work and education data.');
+  acceptedCa10Stories.add('CA10-01');
+  assert(await page.getByLabel('Review summary').inputValue() === 'Design systems lead with 8 years of experience.'
+    && await page.getByLabel('Review CV email').inputValue() === 'mira.patel@example.test',
+  'CA10-02: extracted fields were not rendered in the review form.');
+  const profileBeforeReview = await admin.from('candidate_profiles').select('full_name,phone,bio').eq('user_id', users[0].id).single();
+  assert(!profileBeforeReview.error && profileBeforeReview.data.full_name === profileBeforeApplicationEdit.data.full_name
+    && profileBeforeReview.data.phone === profileBeforeApplicationEdit.data.phone,
+  'CA10-02: parsing modified the profile before the candidate reviewed it.');
+  acceptedCa10Stories.add('CA10-02');
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The CV parsing review form overflows the 375px mobile viewport.');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The CV parsing review form overflows the desktop viewport.');
+  await page.getByLabel('Review full name').fill('Mira Rani Patel Reviewed');
+  await page.getByLabel('Review CV email').fill('mira.reviewed@example.test');
+  await page.getByLabel('Review experience 1 role').fill('Lead Product Designer');
+  await page.getByLabel('Review education 1 institution').fill('Reviewed University');
+  assert(await page.getByLabel('Review full name').inputValue() === 'Mira Rani Patel Reviewed'
+    && await page.getByLabel('Review experience 1 role').inputValue() === 'Lead Product Designer',
+  'CA10-03: extracted fields could not be corrected before saving.');
+  acceptedCa10Stories.add('CA10-03');
+
+  const parserCvBeforeProfileSave = await admin.from('candidate_cvs')
+    .select('id,title,document_url,custom_summary').eq('candidate_user_id', users[0].id).eq('title', 'C1 parser CV').single();
+  assert(!parserCvBeforeProfileSave.error && parserCvBeforeProfileSave.data.document_url?.startsWith(`${users[0].id}/cv/`),
+    `CA10-05: original uploaded CV was not privately registered: ${JSON.stringify(parserCvBeforeProfileSave.error)}`);
+  const parserCvObjectPath = parserCvBeforeProfileSave.data.document_url;
+  const parserCvObjectsBeforeProfileSave = await admin.storage.from('candidate-documents').list(`${users[0].id}/cv`);
+  assert(!parserCvObjectsBeforeProfileSave.error && parserCvObjectsBeforeProfileSave.data.some(file => file.name === parserCvObjectPath.split('/').at(-1)),
+    'CA10-05: original uploaded CV object was missing from the private storage bucket.');
+  const candidateBCannotReadParserCv = await users[1].client.from('candidate_cvs').select('id').eq('id', parserCvBeforeProfileSave.data.id);
+  const candidateBCannotSignParserCv = await users[1].client.storage.from('candidate-documents').createSignedUrl(parserCvObjectPath, 60);
+  assert(!candidateBCannotReadParserCv.error && candidateBCannotReadParserCv.data.length === 0
+    && !candidateBCannotSignParserCv.data?.signedUrl,
+  'CA10-05: another tenant candidate could read or sign the imported CV.');
+  acceptedCa10Stories.add('CA10-05');
+
+  await page.getByRole('button', { name: 'Update my profile with reviewed details' }).click();
+  await page.getByRole('status').filter({ hasText: 'Reviewed CV details were saved to your candidate profile.' }).waitFor({ timeout: 20000 });
+  const importedProfile = await admin.from('candidate_profiles')
+    .select('full_name,phone,headline,bio,skills,profile_data').eq('user_id', users[0].id).single();
+  assert(!importedProfile.error && importedProfile.data.full_name === 'Mira Rani Patel Reviewed'
+    && importedProfile.data.phone === '+1 415-555-0144'
+    && importedProfile.data.headline === 'Senior Product Designer'
+    && importedProfile.data.bio === 'Design systems lead with 8 years of experience.'
+    && importedProfile.data.skills.includes('Accessibility')
+    && importedProfile.data.profile_data.experiences[0].title === 'Lead Product Designer'
+    && importedProfile.data.profile_data.educations[0].institution === 'Reviewed University'
+    && importedProfile.data.profile_data.marker === 'application-Candidate A',
+  `CA10-04: the reviewed profile fields did not persist through the existing candidate_update_profile contract: ${JSON.stringify(importedProfile.error)}`);
+  const candidateAuthAfterImport = await users[0].client.auth.getUser();
+  assert(!candidateAuthAfterImport.error && candidateAuthAfterImport.data.user.email === users[0].email,
+    'CA10-04: importing a CV changed the candidate sign-in email.');
+  acceptedCa10Stories.add('CA10-04');
+  const parserCvAfterProfileSave = await admin.from('candidate_cvs')
+    .select('document_url,custom_summary').eq('id', parserCvBeforeProfileSave.data.id).single();
+  const parserCvObjectsAfterProfileSave = await admin.storage.from('candidate-documents').list(`${users[0].id}/cv`);
+  assert(!parserCvAfterProfileSave.error && parserCvAfterProfileSave.data.document_url === parserCvObjectPath
+    && parserCvObjectsAfterProfileSave.data.some(file => file.name === parserCvObjectPath.split('/').at(-1)),
+  'CA10-05: applying parsed fields changed or removed the original uploaded file.');
+  const expectedCa10Stories = ['CA10-01','CA10-02','CA10-03','CA10-04','CA10-05'];
+  assert(expectedCa10Stories.every(storyId => acceptedCa10Stories.has(storyId)),
+    `Not all canonical CV Parsing stories have runtime evidence: ${expectedCa10Stories.filter(storyId => !acceptedCa10Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA10_STORY_EVIDENCE PASS=5 FAIL=0 stories=${expectedCa10Stories.join(',')} parser=browser-local original=private-owner-bound profile_update=explicit-existing-rpc viewports=375+1280\n`);
+
+  // CA11: build a candidate-owned CV from the saved profile, edit supported
+  // profile/summary sections through existing contracts, and verify the PDF.
+  await page.getByRole('heading', { name: 'Structured CV Builder & Manager' }).waitFor({ timeout: 20000 });
+  await page.getByPlaceholder('Version title (e.g. Lead Architect CV)').fill('C1 profile CV');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByText('C1 profile CV', { exact: true }).waitFor({ timeout: 20000 });
+  const profileBuiltCv = await admin.from('candidate_cvs')
+    .select('id,candidate_user_id,title,custom_summary,document_url')
+    .eq('candidate_user_id', users[0].id).eq('title', 'C1 profile CV').single();
+  assert(!profileBuiltCv.error && profileBuiltCv.data.candidate_user_id === users[0].id
+    && profileBuiltCv.data.custom_summary === importedProfile.data.bio
+    && profileBuiltCv.data.document_url === null,
+  `CA11-01: profile CV was not saved through the existing owner-scoped candidate_cvs contract: ${JSON.stringify(profileBuiltCv.error)}`);
+  acceptedCa11Stories.add('CA11-01');
+
+  const cvPreview = page.locator('[data-candidate-cv-print]');
+  await cvPreview.getByRole('heading', { name: 'Mira Rani Patel Reviewed' }).waitFor({ timeout: 20000 });
+  assert(await cvPreview.getByText('Senior Product Designer', { exact: true }).count() === 1
+    && await cvPreview.getByText('Accessibility', { exact: true }).count() === 1
+    && await cvPreview.getByText('Lead Product Designer', { exact: true }).count() === 1
+    && await cvPreview.getByText('Reviewed University', { exact: true }).count() === 1,
+  'CA11-02: CV preview did not show the saved profile headline, skills, experience and education.');
+  acceptedCa11Stories.add('CA11-02');
+
+  const tailoredCvSummary = 'Selected CV summary for the platform design role.';
+  await page.getByPlaceholder('Summary statement...').fill(tailoredCvSummary);
+  await page.getByRole('button', { name: 'Save CV Version' }).click();
+  await page.getByText('CV record and custom summary saved to HRMIS.', { exact: true }).waitFor({ timeout: 20000 });
+  const savedProfileBuiltCv = await admin.from('candidate_cvs')
+    .select('custom_summary').eq('id', profileBuiltCv.data.id).single();
+  assert(!savedProfileBuiltCv.error && savedProfileBuiltCv.data.custom_summary === tailoredCvSummary,
+    `CA11-03: selected CV summary did not persist through the existing candidate_cvs contract: ${JSON.stringify(savedProfileBuiltCv.error)}`);
+
+  await page.getByRole('button', { name: 'Edit profile details' }).click();
+  await page.getByRole('heading', { name: 'Reusable Candidate Profile' }).waitFor({ timeout: 20000 });
+  const selectedHeadline = 'Candidate platform designer';
+  const selectedLocation = 'Dhaka, Bangladesh';
+  await page.getByLabel('Professional Headline *').fill(selectedHeadline);
+  await page.getByLabel('Current Location *').fill(selectedLocation);
+  await page.getByRole('button', { name: 'Save Profile Changes' }).click();
+  await page.getByRole('status').getByText('Profile successfully updated in Synesis HRMIS.', { exact: true }).waitFor({ timeout: 20000 });
+  const selectedProfile = await admin.from('candidate_profiles')
+    .select('full_name,headline,current_location,skills,profile_data').eq('user_id', users[0].id).single();
+  assert(!selectedProfile.error && selectedProfile.data.full_name === 'Mira Rani Patel Reviewed'
+    && selectedProfile.data.headline === selectedHeadline && selectedProfile.data.current_location === selectedLocation
+    && selectedProfile.data.skills.includes('Accessibility')
+    && selectedProfile.data.profile_data.experiences[0].title === 'Lead Product Designer'
+    && selectedProfile.data.profile_data.educations[0].institution === 'Reviewed University',
+  `CA11-03: editing supported profile fields changed saved identity or CV data: ${JSON.stringify(selectedProfile.error || selectedProfile.data)}`);
+  await page.getByRole('button', { name: 'CV & Documents' }).click();
+  await page.getByRole('heading', { name: 'Structured CV Builder & Manager' }).waitFor({ timeout: 20000 });
+  await page.getByText('C1 profile CV', { exact: true }).first().click();
+  const savedSummaryField = page.getByPlaceholder('Summary statement...');
+  await page.waitForFunction(expected => {
+    const field = document.querySelector('textarea[placeholder="Summary statement..."]');
+    return field instanceof HTMLTextAreaElement && field.value === expected;
+  }, tailoredCvSummary, { timeout: 20000 });
+  const updatedCvPreview = page.locator('[data-candidate-cv-print]');
+  await updatedCvPreview.getByText(selectedHeadline, { exact: true }).waitFor({ timeout: 20000 });
+  assert(await savedSummaryField.inputValue() === tailoredCvSummary
+    && await updatedCvPreview.getByText(selectedLocation, { exact: true }).count() === 1,
+  'CA11-05: selected CV content did not stay consistent with the saved summary and current selected profile.');
+  const foreignCandidateCvRead = await users[1].client.from('candidate_cvs')
+    .select('id').eq('id', profileBuiltCv.data.id);
+  assert(!foreignCandidateCvRead.error && foreignCandidateCvRead.data.length === 0,
+    `CA11-05: a different tenant candidate could read the CV record: ${JSON.stringify(foreignCandidateCvRead.error || foreignCandidateCvRead.data)}`);
+  acceptedCa11Stories.add('CA11-03');
+  acceptedCa11Stories.add('CA11-05');
+
+  await page.evaluate(() => {
+    window.__candidateCvPrintRequested = false;
+    window.print = () => { window.__candidateCvPrintRequested = true; };
   });
-  assert(!changedCandidateProfile.error && changedCandidateProfile.data?.headline === 'Candidate A profile updated after application submission',
-    `Candidate profile edit did not persist through the authenticated profile RPC: ${JSON.stringify(changedCandidateProfile.error)}`);
+  await page.getByRole('button', { name: 'Print / Save PDF' }).click();
+  assert(await page.evaluate(() => window.__candidateCvPrintRequested === true),
+    'CA11-04: the CV export action did not open the browser print/save-to-PDF flow.');
+  const cvPdfBytes = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true });
+  const cvPdf = await getDocument({ data: new Uint8Array(cvPdfBytes) }).promise;
+  const cvPdfText = [];
+  for (let pageNumber = 1; pageNumber <= cvPdf.numPages; pageNumber++) {
+    const pdfPage = await cvPdf.getPage(pageNumber);
+    const textContent = await pdfPage.getTextContent();
+    cvPdfText.push(...textContent.items.map(item => 'str' in item ? item.str : ''));
+  }
+  await cvPdf.destroy();
+  const generatedCvText = cvPdfText.join(' ').replace(/\s+/g, ' ');
+  const compactGeneratedCvText = generatedCvText.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const pdfContains = value => compactGeneratedCvText.includes(value.toLowerCase().replace(/[^a-z0-9]+/g, ''));
+  assert(cvPdfBytes.byteLength > 1000
+    && pdfContains('Mira Rani Patel Reviewed')
+    && pdfContains(selectedHeadline)
+    && pdfContains(tailoredCvSummary)
+    && pdfContains(selectedLocation)
+    && pdfContains('Accessibility')
+    && pdfContains('Lead Product Designer')
+    && pdfContains('Reviewed University')
+    && !pdfContains('Managed CV Versions')
+    && !pdfContains('Open Roles'),
+  `CA11-04: browser PDF did not contain the selected CV profile data: ${generatedCvText.slice(0, 600)}`);
+  acceptedCa11Stories.add('CA11-04');
+  await page.setViewportSize({ width: 375, height: 812 });
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The CV builder controls or selected content overflow the 375px mobile viewport.');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
+    'The CV builder overflows the 1280px desktop viewport.');
+
+  const expectedCa11Stories = ['CA11-01','CA11-02','CA11-03','CA11-04','CA11-05'];
+  assert(expectedCa11Stories.every(storyId => acceptedCa11Stories.has(storyId)),
+    `Not all canonical CV Builder stories have runtime evidence: ${expectedCa11Stories.filter(storyId => !acceptedCa11Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA11_STORY_EVIDENCE PASS=5 FAIL=0 stories=${expectedCa11Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520 cv_contract=candidate_cvs+candidate_update_profile pdf=browser-generated owner=synthetic-auth foreign-tenant-denied viewports=375+1280\n`);
+
   const applicationSnapshotAfterProfileEdit = await admin.from('job_applications')
     .select('id,tenant_id,job_id,candidate_user_id,stage,full_name,email,phone,cv_url,application_data,applied_at')
     .eq('id', application.id).single();
@@ -1055,7 +1358,24 @@ try {
   await withdrawalPage.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
   const withdrawalCard = withdrawalPage.getByRole('button', { name: /Candidate Withdrawal Role/ });
   await withdrawalCard.waitFor({ state: 'visible' });
+  const candidateBApplicationCards = withdrawalPage.locator('[role="button"][aria-controls^="application-history-"]');
+  assert(await candidateBApplicationCards.count() === 3
+    && await withdrawalPage.getByRole('button', { name: /Senior Systems Engineer/ }).count() === 0,
+  'Candidate B did not receive all three of their application records while the foreign tenant application stayed hidden.');
+  acceptedCa15Stories.add('CA15-01');
   const acceptedOfferCard = withdrawalPage.getByRole('button', { name: /Other Tenant Role/ });
+  assert(await acceptedOfferCard.getByText('Offer Accepted', { exact: true }).count() === 1
+    && await withdrawalCard.getByText('Screening in Progress', { exact: true }).count() === 1,
+  'Candidate application cards did not show meaningful candidate-facing stages.');
+  acceptedCa15Stories.add('CA15-02');
+  const withdrawalApplicationRow = await admin.from('job_applications').select('applied_at').eq('id', withdrawalApplicationId).single();
+  assert(!withdrawalApplicationRow.error, 'Candidate application submission date fixture could not be read.');
+  const candidateSubmittedDate = await withdrawalPage.evaluate(value =>
+    new Date(value).toLocaleDateString(document.documentElement.lang === 'bn' ? 'bn-BD' : 'en-US'),
+  withdrawalApplicationRow.data.applied_at);
+  assert(await withdrawalCard.getByText(`Submitted ${candidateSubmittedDate}`, { exact: true }).count() === 1,
+    'Candidate application card did not show the persisted submission date.');
+  acceptedCa15Stories.add('CA15-04');
   await acceptedOfferCard.click();
   assert(await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).count() === 1,
     'The Candidate UI no longer preserves withdrawal access for an offer-stage application.');
@@ -1065,6 +1385,10 @@ try {
     'The Candidate UI allowed withdrawal from a rejected application.');
   await withdrawalCard.click();
   await withdrawalPage.getByRole('button', { name: 'Withdraw Application', exact: true }).waitFor();
+  assert(await withdrawalPage.getByRole('region', { name: 'Application history' }).count() === 1
+    && await withdrawalPage.getByText('Submission Details', { exact: true }).count() === 1,
+  'Opening an application did not reveal its candidate-facing detail and history.');
+  acceptedCa15Stories.add('CA15-03');
   await withdrawalPage.getByRole('button', { name: 'Switch to Bengali' }).click();
   await withdrawalPage.getByRole('heading', { name: 'আমার আবেদন' }).waitFor({ timeout: 20000 });
   await withdrawalPage.getByRole('button', { name: 'আবেদন প্রত্যাহার করুন', exact: true }).click();
@@ -1158,8 +1482,16 @@ try {
     'The Candidate UI still offered withdrawal for an already withdrawn application.');
   assert(!(await withdrawalPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
     'The Candidate desktop withdrawal history overflows the viewport.');
+  assert(await candidateBApplicationCards.count() === 3
+    && await withdrawalPage.getByRole('button', { name: /Candidate Withdrawal Role/ }).count() === 1
+    && await withdrawalPage.getByRole('button', { name: /Candidate Rejected Role/ }).count() === 1,
+  'Withdrawing an application removed it from history or hid another completed application.');
+  acceptedCa15Stories.add('CA15-07');
+  acceptedCa15Stories.add('CA15-08');
   await withdrawalContext.close();
 
+  await page.goto(`http://127.0.0.1:${webPort}/?view=applications&application=${application.id}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
   await page.getByText('Application History', { exact: true }).waitFor();
   await page.getByRole('region', { name: 'Application history' }).getByText('Application Submitted', { exact: true }).waitFor();
   const initialApplicationTimeline = await page.locator('body').innerText();
@@ -1442,6 +1774,24 @@ try {
   assert(await page.getByText('Video Call', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview format. URL=${page.url()} errors=${browserErrors.join(';') || 'none'} UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
   assert(await page.getByText('Panel Member One, Panel Member Two', { exact: false }).count() > 0, `Candidate did not receive the scheduled interview panel. UI=${(await page.locator('body').innerText()).slice(0, 2400)}`);
   assert(await page.getByText('Asia/Dhaka', { exact: false }).count() > 0, 'Candidate interview time did not disclose the organization time zone.');
+  const initialInterviewCard = page.locator('article').filter({ hasText: 'Technical Systems Interview' }).first();
+  const initialInterviewDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: scheduledInterview.data.timezone,
+  }).format(new Date(scheduledInterview.data.scheduled_at));
+  const initialInterviewTime = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit', minute: '2-digit', timeZone: scheduledInterview.data.timezone,
+  }).format(new Date(scheduledInterview.data.scheduled_at));
+  const initialInterviewDetails = await initialInterviewCard.innerText();
+  assert(initialInterviewDetails.includes(initialInterviewDate) && initialInterviewDetails.includes(initialInterviewTime),
+    'Candidate invitation did not display its persisted date and time in the organization time zone.');
+  assert(await initialInterviewCard.locator('a').getAttribute('href') === interviewArguments.p_location_or_link,
+    'Candidate invitation did not display the persisted secure meeting link.');
+  assert(await initialInterviewCard.getByText(interviewArguments.p_instructions, { exact: true }).count() === 1,
+    'Candidate invitation did not display the recruiter-provided candidate instructions.');
+  acceptedCa16Stories.add('CA16-01');
+  acceptedCa16Stories.add('CA16-02');
+  acceptedCa16Stories.add('CA16-03');
+  acceptedCa16Stories.add('CA16-04');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile candidate interview page overflows the viewport.');
   await page.getByRole('button', { name: 'Request Reschedule' }).click();
   try { await page.getByRole('heading', { name: 'Request Alternative Time Slot' }).waitFor({ timeout: 5000 }); }
@@ -1456,6 +1806,7 @@ try {
   assert(!candidateReschedule.error && candidateReschedule.data.candidate_response === 'reschedule_requested'
     && candidateReschedule.data.candidate_proposed_times === 'Friday 10:00–12:00 Asia/Dhaka',
   'Candidate reschedule request did not persist with its proposed availability.');
+  acceptedCa16Stories.add('CA16-06');
   const incompleteReschedule = await users[0].client.rpc('candidate_respond_interview', {
     p_interview_id: scheduledInterview.data.id, p_response: 'reschedule_requested', p_reason: null, p_proposed_times: null,
   });
@@ -1481,15 +1832,58 @@ try {
   await managerInterviewResponse.getByLabel('Candidate instructions').fill('Revised invitation.');
   await managerInterviewResponse.getByRole('button', { name: 'Send interview invitation' }).click();
   await mainManagerPage.getByText('Interview invitation scheduled.', { exact: false }).waitFor({ timeout: 20000 });
+  const replacementInterview = await admin.from('interviews')
+    .select('id,status,candidate_response,interview_type,scheduled_at,duration_minutes,location_or_link,timezone,instructions')
+    .eq('application_id', application.id).eq('status', 'scheduled').single();
+  assert(!replacementInterview.error && replacementInterview.data.id !== scheduledInterview.data.id
+    && replacementInterview.data.candidate_response === 'invited'
+    && replacementInterview.data.interview_type === 'Technical Systems Interview — Video Call'
+    && replacementInterview.data.location_or_link === 'https://meet.example.test/hris-candidate-rescheduled'
+    && replacementInterview.data.instructions === 'Revised invitation.'
+    && replacementInterview.data.duration_minutes === 45 && replacementInterview.data.timezone === 'Asia/Dhaka',
+    'Replacement invitation did not persist the updated candidate-facing details: '
+      + JSON.stringify(replacementInterview.error || replacementInterview.data));
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop candidate interview page overflows the viewport.');
   await page.getByText('Rescheduled', { exact: false }).waitFor().catch(() => {});
+  const replacementInterviewCard = page.locator('article').filter({ hasText: 'Revised invitation.' });
+  await replacementInterviewCard.getByText('Revised invitation.', { exact: true }).waitFor({ timeout: 20000 });
+  const replacementDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: replacementInterview.data.timezone,
+  }).format(new Date(replacementInterview.data.scheduled_at));
+  const replacementTime = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit', minute: '2-digit', timeZone: replacementInterview.data.timezone,
+  }).format(new Date(replacementInterview.data.scheduled_at));
+  const replacementDetails = await replacementInterviewCard.innerText();
+  assert(replacementDetails.includes(replacementDate) && replacementDetails.includes(replacementTime)
+    && await replacementInterviewCard.locator('a').getAttribute('href') === replacementInterview.data.location_or_link,
+    'Candidate did not see the updated replacement interview time and meeting link after the invitation changed.');
+  acceptedCa16Stories.add('CA16-07');
   await page.getByRole('button', { name: 'Accept Invitation' }).waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: 'Accept Invitation' }).click();
   await page.getByRole('button', { name: 'Confirm Response' }).click();
   await page.getByText('Confirmed / Accepted', { exact: true }).waitFor({ timeout: 20000 });
+  acceptedCa16Stories.add('CA16-05');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
+  await page.getByText('Confirmed / Accepted', { exact: true }).waitFor({ timeout: 20000 });
+  await page.getByText('Cancelled', { exact: true }).waitFor({ timeout: 20000 });
+  const interviewHistoryCards = page.locator('article');
+  const rescheduleHistoryCard = interviewHistoryCards.filter({ hasText: 'Your proposed availability:' });
+  const acceptedInterviewCard = interviewHistoryCards.filter({ hasText: 'Revised invitation.' });
+  assert(await interviewHistoryCards.count() === 2
+    && await rescheduleHistoryCard.getByText('Cancelled', { exact: true }).count() === 1
+    && await rescheduleHistoryCard.getByText('Friday 10:00–12:00 Asia/Dhaka', { exact: false }).count() === 1
+    && await acceptedInterviewCard.getByText('Confirmed / Accepted', { exact: true }).count() === 1,
+    'Candidate interview history did not retain the reschedule request and updated accepted invitation after refresh: '
+      + JSON.stringify({ count: await interviewHistoryCards.count(), cards: await interviewHistoryCards.allInnerTexts() }));
+  acceptedCa16Stories.add('CA16-08');
+  const expectedCa16Stories = Array.from({ length: 8 }, (_, index) => 'CA16-' + String(index + 1).padStart(2, '0'));
+  assert(expectedCa16Stories.every(storyId => acceptedCa16Stories.has(storyId)),
+    'Not all canonical Candidate Interview stories have runtime evidence: '
+      + expectedCa16Stories.filter(storyId => !acceptedCa16Stories.has(storyId)).join(', '));
   const finalInterviews = await admin.from('interviews').select('status,candidate_response').eq('application_id', application.id).order('created_at');
   assert(!finalInterviews.error && finalInterviews.data.length === 2
     && finalInterviews.data[0].status === 'cancelled'
@@ -1499,6 +1893,11 @@ try {
   await mainManagerPage.reload({ waitUntil: 'domcontentloaded' });
   await mainManagerPage.getByRole('heading', { name: 'Interview responses' }).waitFor({ timeout: 20000 });
   await mainManagerPage.getByText('Candidate accepted', { exact: true }).waitFor();
+  process.stdout.write('CANDIDATE_CA16_STORY_EVIDENCE PASS=8 FAIL=0 stories=' + expectedCa16Stories.join(',')
+    + ' source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520'
+    + ' contract=candidate_get_recruitment_context+candidate_respond_interview'
+    + ' owner=synthetic-auth foreign-candidate-denied recruiter-scheduling=disposable-only'
+    + ' production-hr-rpc=blocked invitation-history=retained timezone=Asia/Dhaka viewports=375+1280\n');
 
   await candidateApplicationRow.getByText('Issue offer', { exact: true }).click();
   assert(await candidateApplicationRow.locator('form').last().evaluate(form => !form.checkValidity()), 'Offer form did not enforce required fields before submission.');
@@ -1555,6 +1954,7 @@ try {
   const persistedTimeline = await page.locator('body').innerText();
   assert(!persistedTimeline.includes('private recruiter') && !persistedTimeline.includes('panel note'),
     'Candidate application history exposed internal recruiter notes.');
+  acceptedCa15Stories.add('CA15-06');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Mobile application history overflows the viewport.');
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -1567,6 +1967,24 @@ try {
   assert(!(await desktopInterviewCompletedTimeline.innerText()).includes('Private completed-interview recruiter note.'),
     'Candidate desktop interview-completion history exposed a recruiter-only note.');
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'Desktop application history overflows the viewport.');
+
+  const actionableApplicationCard = page.locator(`[aria-controls="application-history-${application.id}"]`);
+  if (await actionableApplicationCard.getAttribute('aria-expanded') !== 'true') await actionableApplicationCard.click();
+  const actionableApplicationHistory = page.locator(`#application-history-${application.id}`).locator('xpath=..');
+  await actionableApplicationHistory.getByRole('button', { name: 'Check Interviews', exact: true }).click();
+  await page.getByRole('heading', { name: 'Interview Invitations' }).waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'My Applications', exact: true }).first().click();
+  await page.getByRole('heading', { name: 'My Applications' }).waitFor({ timeout: 20000 });
+  const returnedApplicationCard = page.locator(`[aria-controls="application-history-${application.id}"]`);
+  await returnedApplicationCard.click();
+  const returnedApplicationDetails = page.locator(`#application-history-${application.id}`).locator('xpath=..');
+  await returnedApplicationDetails.getByRole('button', { name: 'Assessments & Documents', exact: true }).click();
+  await page.getByRole('heading', { name: 'Assessments & Document Requests' }).waitFor({ timeout: 20000 });
+  acceptedCa15Stories.add('CA15-05');
+  const expectedCa15Stories = Array.from({ length: 8 }, (_, index) => `CA15-${String(index + 1).padStart(2, '0')}`);
+  assert(expectedCa15Stories.every(storyId => acceptedCa15Stories.has(storyId)),
+    `Not all canonical My Applications stories have runtime evidence: ${expectedCa15Stories.filter(storyId => !acceptedCa15Stories.has(storyId)).join(', ')}`);
+  process.stdout.write(`CANDIDATE_CA15_STORY_EVIDENCE PASS=8 FAIL=0 stories=${expectedCa15Stories.join(',')} source_sha256=c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520 contract=candidate_get_recruitment_context+candidate_withdraw_application owner=synthetic-auth foreign-tenant-denied private-notes-denied mobile+desktop\n`);
 
   const candidateOfferContexts = [];
   page.on('response', async response => {

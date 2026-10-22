@@ -8,6 +8,7 @@ import { adaptLiveApplication } from '../src/lib/recruitmentAdapters.ts';
 import { translateCandidateText } from '../src/lib/candidateLocale.ts';
 
 const page = readFileSync(new URL('../src/pages/VerifiedApplyPage.tsx', import.meta.url), 'utf8');
+const savedJobsPage = readFileSync(new URL('../src/pages/VerifiedSavedJobsPage.tsx', import.meta.url), 'utf8');
 const api = readFileSync(new URL('../src/lib/api.ts', import.meta.url), 'utf8');
 const localJourney = readFileSync(new URL('./candidate-application-local-e2e.mjs', import.meta.url), 'utf8');
 const localFixture = readFileSync(new URL('./candidate-application-local-fixture.sql', import.meta.url), 'utf8');
@@ -47,6 +48,76 @@ test('all canonical CA14 job-application stories have a concrete local Auth/Post
   }
   assert.match(localJourney, /CANDIDATE_CA14_STORY_EVIDENCE PASS=12 FAIL=0/);
   assert.match(localJourney, /expectedCa14Stories\.every\(storyId => acceptedCa14Stories\.has\(storyId\)\)/);
+});
+
+test('canonical CA11 CV Builder stories are covered only through the existing candidate CV and profile contracts', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(item => item.module_id === 'CA11');
+  assert.deepEqual(stories.map(story => story.story_id), ['CA11-01','CA11-02','CA11-03','CA11-04','CA11-05']);
+  assert.match(localJourney, /candidate_cvs/);
+  assert.match(localJourney, /candidate_update_profile/);
+  for (const story of stories) {
+    assert.ok(story.verbatim_requirement?.startsWith('As a candidate,'), `${story.story_id} retains its original source requirement.`);
+    assert.match(localJourney, new RegExp(`acceptedCa11Stories\\.add\\(['"]${story.story_id}['"]\\)`),
+      `${story.story_id} is marked only at its Auth/Postgres browser evidence assertion.`);
+  }
+  assert.match(localJourney, /CANDIDATE_CA11_STORY_EVIDENCE PASS=5 FAIL=0/);
+  assert.match(localJourney, /expectedCa11Stories\.every\(storyId => acceptedCa11Stories\.has\(storyId\)\)/);
+  assert.match(localJourney, /getDocument\(\{ data: new Uint8Array\(cvPdfBytes\) \}\)/);
+});
+
+test('canonical CA12 Saved Jobs stories use the existing owner-scoped saved-job table and published-job projection', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(item => item.module_id === 'CA12');
+  assert.deepEqual(stories.map(story => story.story_id), ['CA12-01','CA12-02','CA12-03','CA12-04']);
+  assert.deepEqual(stories.map(story => story.verbatim_requirement), [
+    'As a candidate, I want to save an open job.',
+    'As a candidate, I want to remove a saved job.',
+    'As a candidate, I want to see saved jobs later.',
+    'As a candidate, I want closed saved jobs identified clearly.',
+  ]);
+  assert.match(api, /from\('candidate_saved_jobs'\)\.select\('job_id'\)/);
+  assert.match(api, /from\('candidate_saved_jobs'\)\s*\.insert\(\{candidate_user_id:userId,job_id:jobId\}\)/);
+  assert.match(api, /from\('candidate_published_jobs'\)\.select\('\*'\)[\s\S]*?\.eq\('status', 'published'\)[\s\S]*?\.eq\('is_published', true\)[\s\S]*?\.eq\('is_active', true\)/);
+  assert.match(savedJobsPage, /This saved vacancy is no longer published\./);
+  assert.match(localFixture, /c1_apply_saved_jobs_select_own[\s\S]*?candidate_user_id=\(SELECT auth\.uid\(\)\)/);
+  for (const story of stories) {
+    assert.match(localJourney, new RegExp(`acceptedCa12Stories\\.add\\(['"]${story.story_id}['"]\\)`),
+      `${story.story_id} is marked at its signed-in synthetic browser and database assertion.`);
+  }
+  assert.match(localJourney, /CANDIDATE_CA12_STORY_EVIDENCE PASS=4 FAIL=0/);
+  assert.match(localJourney, /expectedCa12Stories\.every\(storyId => acceptedCa12Stories\.has\(storyId\)\)/);
+  assert.match(localJourney, /closed saved vacancy in the disposable projection/);
+});
+
+test('canonical CA13 Job Alerts stories use only the existing owner-scoped alert and notification tables', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(item => item.module_id === 'CA13');
+  assert.deepEqual(stories.map(story => story.story_id), ['CA13-01','CA13-02','CA13-03','CA13-04','CA13-05']);
+  assert.deepEqual(stories.map(story => story.verbatim_requirement), [
+    'As a candidate, I want to create a job alert.',
+    'As a candidate, I want to define relevant criteria.',
+    'As a candidate, I want to enable/disable an alert.',
+    'As a candidate, I want to edit/delete alerts.',
+    'As a candidate, I want notifications only when relevant jobs meet the criteria.',
+  ]);
+  assert.match(api, /from\('candidate_job_alerts'\)\.insert\(/);
+  assert.match(api, /export async function updateVerifiedCandidateJobAlert[\s\S]*?\.update\([\s\S]*?\.eq\('id', alertId\)\.eq\('candidate_user_id', userId\)/);
+  assert.match(api, /export async function setVerifiedCandidateJobAlertActive[\s\S]*?\.update\(\{ is_active: isActive \}\)[\s\S]*?\.eq\('id', alertId\)\.eq\('candidate_user_id', userId\)/);
+  assert.match(api, /export async function deleteVerifiedCandidateJobAlert[\s\S]*?\.eq\('id', alertId\)\.eq\('candidate_user_id', userId\)/);
+  assert.match(localFixture, /c1_candidate_job_alerts_own[\s\S]*?candidate_user_id=\(SELECT auth\.uid\(\)\)/);
+  assert.match(savedJobsPage, /aria-label=\{t\('Edit \{title\} alert'/);
+  assert.match(savedJobsPage, /Pause \{title\} alert/);
+  assert.match(localFixture, /c1_notify_matching_job_alerts[\s\S]*?EXISTS \([\s\S]*?regexp_split_to_table\(alert\.keywords/);
+  for (const story of stories) {
+    assert.match(localJourney, new RegExp(`acceptedCa13Stories\\.add\\(['"]${story.story_id}['"]\\)`),
+      `${story.story_id} is marked at its signed-in synthetic browser and database assertion.`);
+  }
+  assert.match(localJourney, /CANDIDATE_CA13_STORY_EVIDENCE PASS=5 FAIL=0/);
+  assert.match(localJourney, /expectedCa13Stories\.every\(storyId => acceptedCa13Stories\.has\(storyId\)\)/);
+  assert.match(localJourney, /unrelated vacancy generated an alert notification/);
+  assert.match(localJourney, /Job-alert controls overflow the 375px candidate viewport/);
+  assert.match(localJourney, /Job-alert controls overflow the 1280px candidate viewport/);
 });
 
 test('server drafts resume application fields and document selections without contact PII', () => {
@@ -161,6 +232,47 @@ test('Candidate withdrawal is server-persisted and preserves existing offer-stag
   assert.match(localJourney, /candidateCannotWithdrawOtherTenant[\s\S]*?anonymousWithdrawal[\s\S]*?invalidWithdrawalReason[\s\S]*?rejectedApplicationWithdrawal/);
   assert.match(localJourney, /withdrawal=owner\+tenant\+rejected-stage\+offer-stage-preserved\+allowlisted-reason\+idempotent\+audited-history\+retry\+refresh\+ENBN/);
   assert.match(localJourney, /setViewportSize\(\{ width: 375, height: 812 \}\)[\s\S]*?setViewportSize\(\{ width: 1280, height: 800 \}\)/);
+});
+
+test('canonical CA15 My Applications stories have isolated signed-in runtime evidence', () => {
+  assert.match(api, /rpc\('candidate_get_recruitment_context'\)/);
+  assert.match(api, /rpc\('candidate_withdraw_application'/);
+  assert.match(localJourney, /CANDIDATE_CA15_STORY_EVIDENCE PASS=8 FAIL=0 stories=\$\{expectedCa15Stories\.join\(','\)\}/);
+  assert.match(localJourney, /Array\.from\(\{ length: 8 \}, \(_, index\) => `CA15-/);
+  assert.match(localJourney, /candidateBApplicationCards\.count\(\) === 3[\s\S]*?acceptedCa15Stories\.add\('CA15-01'\)/);
+  assert.match(localJourney, /candidateSubmittedDate[\s\S]*?acceptedCa15Stories\.add\('CA15-04'\)/);
+  assert.match(localJourney, /Check Interviews[\s\S]*?Assessments & Documents[\s\S]*?acceptedCa15Stories\.add\('CA15-05'\)/);
+  assert.match(localJourney, /persistedTimeline\.includes\('private recruiter'\)[\s\S]*?acceptedCa15Stories\.add\('CA15-06'\)/);
+  assert.match(localJourney, /acceptedCa15Stories\.add\('CA15-07'\)[\s\S]*?acceptedCa15Stories\.add\('CA15-08'\)/);
+});
+
+test('canonical CA16 interview stories use existing candidate RPCs and disposable recruiter scheduling evidence', () => {
+  assert.equal(canonicalMatrixHash, 'c0f8eb8ea4fa7a1cd17e957629642c957ae0c22d706f07d0b2c3f1a2a77ed520');
+  const stories = canonicalMatrix.stories.filter(story => story.module_id === 'CA16');
+  assert.equal(stories.length, 8, 'Canonical CA16 module contains the 8 original Interview stories.');
+  for (const story of stories) {
+    assert.ok(story.verbatim_requirement?.startsWith('As a candidate,'), `${story.story_id} retains its original source requirement.`);
+    assert.match(localJourney, new RegExp(`acceptedCa16Stories\\.add\\(['\"]${story.story_id}['\"]\\)`),
+      `${story.story_id} is marked only at its signed-in Auth/Postgres browser evidence assertion.`);
+  }
+  assert.match(api, /rpc\('candidate_get_recruitment_context'\)/);
+  assert.match(api, /rpc\('candidate_respond_interview'/);
+  for (const unsupportedRpc of [
+    'hris_get_recruitment_pipeline',
+    'hris_update_candidate_application_stage',
+    'hris_issue_candidate_offer',
+    'hris_schedule_candidate_interview',
+    'hris_get_candidate_interview_responses',
+    'hris_save_candidate_interview_panel_notes',
+    'hris_complete_candidate_interview',
+  ]) {
+    assert.ok(!api.includes(unsupportedRpc), `${unsupportedRpc} must remain unavailable in Candidate client actions.`);
+  }
+  assert.match(localJourney, /candidateCannotSchedule\.error\?\.code === '42501'/);
+  assert.match(localJourney, /crossCandidateResponse\.error\?\.code === 'P0002'/);
+  assert.match(localJourney, /interviewHistoryCards\.count\(\) === 2[\s\S]*?acceptedCa16Stories\.add\('CA16-08'\)/);
+  assert.match(localJourney, /CANDIDATE_CA16_STORY_EVIDENCE PASS=8 FAIL=0/);
+  assert.match(localJourney, /recruiter-scheduling=disposable-only[\s\S]*?production-hr-rpc=blocked/);
 });
 
 test('application withdrawal dialog has labelled modal semantics, keyboard containment and recoverable errors', () => {

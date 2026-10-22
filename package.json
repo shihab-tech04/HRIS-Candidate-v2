@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:routes": "node --import tsx --test tests/candidate-routes.node.test.mjs tests/candidate-notifications.node.test.mjs tests/candidate-dashboard-recovery.node.test.mjs tests/candidate-profile-adapters.node.test.mjs tests/candidate-profile-loading.node.test.mjs tests/candidate-application-contract.node.test.mjs tests/candidate-interviews-workflow.node.test.mjs tests/candidate-localization.node.test.mjs tests/candidate-auth-accessibility.node.test.mjs tests/candidate-password-recovery.node.test.mjs tests/candidate-auth-ci-workflow.node.test.mjs",
+    "test:routes": "node --import tsx --test tests/candidate-routes.node.test.mjs tests/candidate-notifications.node.test.mjs tests/candidate-dashboard-recovery.node.test.mjs tests/candidate-profile-adapters.node.test.mjs tests/candidate-profile-loading.node.test.mjs tests/candidate-cv-parser.node.test.mjs tests/candidate-application-contract.node.test.mjs tests/candidate-interviews-workflow.node.test.mjs tests/candidate-localization.node.test.mjs tests/candidate-auth-accessibility.node.test.mjs tests/candidate-password-recovery.node.test.mjs tests/candidate-auth-ci-workflow.node.test.mjs",
     "test:notifications": "node --import tsx --test tests/candidate-notifications.node.test.mjs",
     "test:auth-accessibility": "node tests/candidate-auth-accessibility.local-e2e.mjs",
     "test:password-recovery": "node tests/candidate-password-recovery.local-e2e.mjs",
@@ -25,7 +25,9 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
+    "mammoth": "^1.13.0",
     "motion": "^12.23.24",
+    "pdfjs-dist": "^5.7.284",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^8.3.0"

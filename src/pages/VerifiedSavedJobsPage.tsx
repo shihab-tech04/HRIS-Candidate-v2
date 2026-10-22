@@ -14,6 +14,8 @@ import {
   VerifiedCandidateJobAlert,
   VerifiedCandidateJobAlertInput,
   VerifiedCandidateNotification,
+  setVerifiedCandidateJobAlertActive,
+  updateVerifiedCandidateJobAlert,
 } from '../lib/api';
 
 interface Props {
@@ -35,6 +37,7 @@ export default function VerifiedSavedJobsPage({ onSelectJob, onApplyJob, onOpenA
   const [alerts, setAlerts] = useState<VerifiedCandidateJobAlert[]>([]);
   const [notifications, setNotifications] = useState<VerifiedCandidateNotification[]>([]);
   const [alertInput, setAlertInput] = useState<VerifiedCandidateJobAlertInput>(emptyAlert);
+  const [editingAlertId, setEditingAlertId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
@@ -98,6 +101,7 @@ export default function VerifiedSavedJobsPage({ onSelectJob, onApplyJob, onOpenA
     setPendingAlertIds(new Set());
     setPendingNotificationIds(new Set());
     setAlertInput(emptyAlert);
+    setEditingAlertId(null);
     setNotice('');
     void refresh();
     return () => { requestSequence.current += 1; };
@@ -124,15 +128,24 @@ export default function VerifiedSavedJobsPage({ onSelectJob, onApplyJob, onOpenA
     event.preventDefault();
     if (!userId || submittingAlert) return;
     const actorId = userId;
+    const alertIdBeingEdited = editingAlertId;
     setSubmittingAlert(true);
     setError('');
     setNotice('');
     try {
-      const created = await createVerifiedCandidateJobAlert(actorId, alertInput);
+      const saved = alertIdBeingEdited
+        ? await updateVerifiedCandidateJobAlert(actorId, alertIdBeingEdited, alertInput)
+        : await createVerifiedCandidateJobAlert(actorId, alertInput);
       if (activeUserId.current !== actorId) return;
       setAlertInput(emptyAlert);
-      setAlerts(current => [created, ...current]);
-      setNotice(t('“{title}” is active. Matching newly published roles will appear here as in-app notifications.', { title: created.title }));
+      setEditingAlertId(null);
+      if (alertIdBeingEdited) {
+        setAlerts(current => current.map(alert => alert.id === alertIdBeingEdited ? saved : alert));
+        setNotice(t('“{title}” was updated.', { title: saved.title }));
+      } else {
+        setAlerts(current => [saved, ...current]);
+        setNotice(t('“{title}” is active. Matching newly published roles will appear here as in-app notifications.', { title: saved.title }));
+      }
     } catch (cause) {
       if (activeUserId.current === actorId) setError(localizedError(cause, 'Unable to save this job alert.'));
     } finally {
@@ -149,6 +162,10 @@ export default function VerifiedSavedJobsPage({ onSelectJob, onApplyJob, onOpenA
       await deleteVerifiedCandidateJobAlert(actorId, alert.id);
       if (activeUserId.current === actorId) {
         setAlerts(current => current.filter(item => item.id !== alert.id));
+        if (editingAlertId === alert.id) {
+          setEditingAlertId(null);
+          setAlertInput(emptyAlert);
+        }
         setNotice(t('“{title}” was removed.', { title: alert.title }));
       }
     } catch (cause) {
@@ -158,6 +175,42 @@ export default function VerifiedSavedJobsPage({ onSelectJob, onApplyJob, onOpenA
         setPendingAlertIds(prev => { const next = new Set(prev); next.delete(alert.id); return next; });
       }
     }
+  }
+
+  async function setAlertActive(alert: VerifiedCandidateJobAlert, isActive: boolean) {
+    if (!userId || pendingAlertIds.has(alert.id)) return;
+    const actorId = userId;
+    setPendingAlertIds(prev => new Set(prev).add(alert.id));
+    setError('');
+    setNotice('');
+    try {
+      const updated = await setVerifiedCandidateJobAlertActive(actorId, alert.id, isActive);
+      if (activeUserId.current === actorId) {
+        setAlerts(current => current.map(item => item.id === alert.id ? updated : item));
+        setNotice(t(isActive ? '“{title}” is active.' : '“{title}” is paused.', { title: updated.title }));
+      }
+    } catch (cause) {
+      if (activeUserId.current === actorId) setError(localizedError(cause, 'Unable to update this job alert.'));
+    } finally {
+      if (activeUserId.current === actorId) {
+        setPendingAlertIds(prev => { const next = new Set(prev); next.delete(alert.id); return next; });
+      }
+    }
+  }
+
+  function editAlert(alert: VerifiedCandidateJobAlert) {
+    setEditingAlertId(alert.id);
+    setAlertInput({
+      title: alert.title,
+      keywords: alert.keywords || '',
+      department: alert.department || '',
+      location: alert.location || '',
+      workplace_type: alert.workplace_type || '',
+      employment_type: alert.employment_type || '',
+    });
+    setError('');
+    setNotice('');
+    document.getElementById('job-alert-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   async function markNotificationRead(notification: VerifiedCandidateNotification) {
@@ -226,10 +279,10 @@ export default function VerifiedSavedJobsPage({ onSelectJob, onApplyJob, onOpenA
       <section aria-labelledby="job-alerts-heading" className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="rounded-xl border bg-white p-5 space-y-4">
           <div>
-            <h2 id="job-alerts-heading" className="text-lg font-semibold">{t('Create a job alert')}</h2>
+            <h2 id="job-alerts-heading" className="text-lg font-semibold">{t(editingAlertId ? 'Edit job alert' : 'Create a job alert')}</h2>
             <p className="mt-1 text-sm text-slate-600">{t('Get an in-app notification when a newly published vacancy matches these filters.')}</p>
           </div>
-          <form className="space-y-3" onSubmit={event => void submitAlert(event)}>
+          <form id="job-alert-form" className="space-y-3" onSubmit={event => void submitAlert(event)}>
             <label className="block space-y-1 text-sm font-medium">
               <span>{t('Alert name')}</span>
               <input className={field} required maxLength={120} value={alertInput.title}
@@ -270,9 +323,15 @@ export default function VerifiedSavedJobsPage({ onSelectJob, onApplyJob, onOpenA
               </label>
             </div>
             <p className="text-xs text-slate-500">{t('Alerts run instantly for new matching vacancies. Notifications appear in this page; email delivery is not configured by this workflow.')}</p>
-            <button className={action + ' bg-[#085587] text-white'} disabled={loading || submittingAlert}>
-              {submittingAlert ? t('Saving alert…') : t('Save job alert')}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button className={action + ' bg-[#085587] text-white'} disabled={loading || submittingAlert}>
+                {submittingAlert ? t(editingAlertId ? 'Updating alert…' : 'Saving alert…') : t(editingAlertId ? 'Update job alert' : 'Save job alert')}
+              </button>
+              {editingAlertId && <button type="button" className={action} disabled={submittingAlert}
+                onClick={() => { setEditingAlertId(null); setAlertInput(emptyAlert); }}>
+                {t('Cancel edit')}
+              </button>}
+            </div>
           </form>
         </div>
 
@@ -290,10 +349,21 @@ export default function VerifiedSavedJobsPage({ onSelectJob, onApplyJob, onOpenA
                   <p className="text-xs text-slate-600">{t('Instant')} · {alert.is_active ? t('Active') : t('Paused')}</p>
                   <p className="text-xs text-slate-500">{[alert.keywords, alert.department, alert.location, t(alert.workplace_type || ''), t(alert.employment_type || '')].filter(Boolean).join(' · ') || t('Matches any new vacancy')}</p>
                 </div>
-                <button className={action} disabled={pendingAlertIds.has(alert.id)}
-                  aria-label={t('Remove {title} alert', { title: alert.title })} onClick={() => void removeAlert(alert)}>
-                  {pendingAlertIds.has(alert.id) ? t('Removing…') : t('Remove')}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button className={action} disabled={pendingAlertIds.has(alert.id)}
+                    aria-label={t(alert.is_active ? 'Pause {title} alert' : 'Resume {title} alert', { title: alert.title })}
+                    onClick={() => void setAlertActive(alert, !alert.is_active)}>
+                    {t(alert.is_active ? 'Pause' : 'Resume')}
+                  </button>
+                  <button className={action} disabled={pendingAlertIds.has(alert.id)}
+                    aria-label={t('Edit {title} alert', { title: alert.title })} onClick={() => editAlert(alert)}>
+                    {t('Edit')}
+                  </button>
+                  <button className={action} disabled={pendingAlertIds.has(alert.id)}
+                    aria-label={t('Remove {title} alert', { title: alert.title })} onClick={() => void removeAlert(alert)}>
+                    {pendingAlertIds.has(alert.id) ? t('Removing…') : t('Remove')}
+                  </button>
+                </div>
               </div>
             </li>)}
           </ul>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { CandidateCV, CandidateProfile } from '../types';
-import { listCandidateCVs, persistCandidateCV, uploadCandidateCV, getCandidateCVDownloadUrl } from '../lib/api';
+import { listCandidateCVs, persistCandidateCV, uploadCandidateCV, getCandidateCVDownloadUrl, updateCandidateProfile } from '../lib/api';
+import { extractCandidateProfileFromCvFile } from '../lib/candidateCvParser';
 import {
   FileText,
   Upload,
@@ -23,7 +24,7 @@ interface CVBuilderPageProps {
 }
 
 export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [cvList, setCvList] = useState<CandidateCV[]>([]);
   const [selectedCv, setSelectedCv] = useState<CandidateCV | null>(null);
 
@@ -32,10 +33,15 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
   const [newVersion, setNewVersion] = useState('v1.0');
   const [isDefault, setIsDefault] = useState(false);
 
-  // File upload state with safe parsing simulation
+  // The file itself is stored privately; parsing runs locally in the browser.
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parseNotice, setParseNotice] = useState<string | null>(null);
+  const [reviewProfile, setReviewProfile] = useState<Partial<CandidateProfile> | null>(null);
+  const [reviewEmail, setReviewEmail] = useState('');
+  const [parseWarnings, setParseWarnings] = useState<string[]>([]);
+  const [parseRequiresManualEntry, setParseRequiresManualEntry] = useState(false);
+  const [updatingProfile, setUpdatingProfile] = useState(false);
 
   // Editable CV Content
   const [cvData, setCvData] = useState<Partial<CandidateProfile>>({});
@@ -69,8 +75,12 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
 
   const handleSelectCv = (cv: CandidateCV) => {
     setSelectedCv(cv);
-    setCvData(cv.structured_content || profile || {});
+    setCvData({ ...(profile || {}), ...(cv.structured_content || {}) });
     setParseNotice(null);
+    setReviewProfile(null);
+    setReviewEmail('');
+    setParseWarnings([]);
+    setParseRequiresManualEntry(false);
   };
 
   const handleCreateCv = async (e: React.FormEvent) => {
@@ -110,23 +120,73 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const handleSimulateSafeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleParseUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user || !selectedCv) return;
     setUploadFile(file);
     setParsing(true);
     setParseNotice(null);
+    setReviewProfile(null);
+    setReviewEmail('');
+    setParseWarnings([]);
+    setParseRequiresManualEntry(false);
     try {
       const stored = await uploadCandidateCV(user.id, selectedCv, file);
       setSelectedCv(stored);
-      await loadCVs();
-      setParseNotice('CV uploaded to private storage. Automatic parsing is not yet available; update your candidate profile manually.');
+      setCvList(current => current.some(cv => cv.id === stored.id)
+        ? current.map(cv => cv.id === stored.id ? stored : cv)
+        : [stored, ...current]);
+      setParseNotice(`${file.name} is stored in your private candidate documents. Its contents will be read in this browser for review.`);
       setSaveError(null);
+
+      try {
+        const extraction = await extractCandidateProfileFromCvFile(file);
+        setReviewProfile(extraction.profile);
+        setReviewEmail(extraction.accountEmail);
+        setParseWarnings(extraction.warnings);
+        setParseRequiresManualEntry(false);
+        setCvData(current => ({ ...current, ...extraction.profile }));
+        setParseNotice(`${file.name} is stored privately. Review the extracted details below; your profile has not been changed.`);
+      } catch (parseError) {
+        setParseRequiresManualEntry(true);
+        setParseNotice(`${file.name} is stored privately. ${parseError instanceof Error ? parseError.message : 'Automatic parsing could not read this file.'}`);
+      }
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'CV upload failed.');
     } finally {
       setParsing(false);
       e.target.value = '';
+    }
+  };
+
+  const updateReviewedProfile = (updates: Partial<CandidateProfile>) => {
+    setReviewProfile(current => current ? { ...current, ...updates } : current);
+  };
+
+  const handleApplyReviewedProfile = async () => {
+    if (!user || !reviewProfile) return;
+    setUpdatingProfile(true);
+    setSaveError(null);
+    try {
+      const mergedProfile = {
+        ...(profile || {}),
+        ...reviewProfile,
+        // Keep opaque data used by the existing HRIS profile contract.
+        profile_data: {
+          ...(profile?.profile_data || {}),
+          ...(reviewProfile.profile_data || {}),
+        },
+      };
+      await updateCandidateProfile(user.id, mergedProfile);
+      await refreshProfile();
+      setCvData(current => ({ ...current, ...reviewProfile }));
+      setReviewProfile(null);
+      setParseRequiresManualEntry(false);
+      setParseNotice('Reviewed CV details were saved to your candidate profile. The original upload remains privately stored.');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Reviewed CV details were not saved. Please retry.');
+    } finally {
+      setUpdatingProfile(false);
     }
   };
 
@@ -161,17 +221,25 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigate('profile')}
+              className="min-h-11 py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+            >
+              <FileText className="w-3.5 h-3.5 text-slate-500" />
+              Edit profile details
+            </button>
             <button
               onClick={handlePrintCV}
-              className="py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+              className="min-h-11 py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
             >
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               Print / Save PDF
             </button>
             <button
               onClick={handleSaveStructuredCV}
-              className="py-2 px-4 bg-[#085587] text-white hover:bg-[#074771] rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+              className="min-h-11 py-2 px-4 bg-[#085587] text-white hover:bg-[#074771] rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               Save CV Version
@@ -188,7 +256,7 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
         )}
 
         {parseNotice && (
-          <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-800 flex items-center gap-2">
+          <div role="status" aria-live="polite" className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-800 flex items-center gap-2">
             <FileCheck className="w-4 h-4 text-[#085587]" />
             <span>{parseNotice}</span>
           </div>
@@ -272,22 +340,190 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
                   Extracted details will be editable before saving
                 </p>
                 <label className="inline-block py-1.5 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">
-                  {parsing ? 'Parsing...' : 'Choose File'}
+                  {!selectedCv ? 'Create a CV version first' : parsing ? 'Uploading and parsing...' : 'Choose File'}
                   <input
                     type="file"
                     accept=".pdf,.doc,.docx"
                     className="hidden"
-                    onChange={handleSimulateSafeUpload}
-                    disabled={parsing}
+                    onChange={handleParseUpload}
+                    disabled={parsing || !selectedCv}
                   />
                 </label>
+                {!selectedCv && <p className="text-[11px] text-slate-500">Create or select a CV version before uploading.</p>}
+                {uploadFile && <p className="mt-2 text-[11px] text-slate-500 break-all">Selected: {uploadFile.name}</p>}
+                <p className="mt-2 text-[11px] text-slate-500">
+                  PDF and DOCX text is parsed in this browser. Legacy DOC files are kept privately for manual review.
+                </p>
+                {uploadFile && parseRequiresManualEntry && (
+                  <button type="button" onClick={() => onNavigate('profile')} className="mt-2 text-xs font-semibold text-[#085587] underline underline-offset-2">
+                    Open profile editor
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
           {/* Right Col: Structured CV Preview & Live Editor (2 spans) */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0">
+            {reviewProfile && (
+              <section aria-labelledby="cv-import-review-heading" className="mb-6 bg-white rounded-2xl border border-sky-200 p-5 sm:p-6 shadow-xs space-y-4">
+                <div>
+                  <h2 id="cv-import-review-heading" className="text-sm font-bold text-slate-900">Review extracted details</h2>
+                  <p className="mt-1 text-xs text-slate-600">
+                    These suggestions came from {uploadFile?.name || 'your CV'} and can be corrected before you choose to update your profile.
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">Your uploaded file remains private and is not replaced by these details.</p>
+                </div>
+
+                {parseWarnings.length > 0 && (
+                  <ul role="status" className="space-y-1 rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900">
+                    {parseWarnings.map(warning => <li key={warning}>{warning}</li>)}
+                  </ul>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="text-xs font-semibold text-slate-700" htmlFor="cv-review-name">
+                    Full name
+                    <input id="cv-review-name" aria-label="Review full name" value={reviewProfile.full_name || ''}
+                      onChange={e => updateReviewedProfile({ full_name: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700" htmlFor="cv-review-phone">
+                    Phone
+                    <input id="cv-review-phone" aria-label="Review phone" value={reviewProfile.phone || ''}
+                      onChange={e => updateReviewedProfile({ phone: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700" htmlFor="cv-review-location">
+                    Location
+                    <input id="cv-review-location" aria-label="Review location" value={reviewProfile.location || ''}
+                      onChange={e => updateReviewedProfile({ location: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700" htmlFor="cv-review-headline">
+                    Professional headline
+                    <input id="cv-review-headline" aria-label="Review headline" value={reviewProfile.headline || ''}
+                      onChange={e => updateReviewedProfile({ headline: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700 sm:col-span-2" htmlFor="cv-review-email">
+                    Email found in CV
+                    <input id="cv-review-email" aria-label="Review CV email" type="email" value={reviewEmail}
+                      onChange={e => setReviewEmail(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                    <span className="mt-1 block font-normal text-slate-500">This review value does not change your sign-in email.</span>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700 sm:col-span-2" htmlFor="cv-review-summary">
+                    Professional summary
+                    <textarea id="cv-review-summary" aria-label="Review summary" rows={3} value={reviewProfile.summary || ''}
+                      onChange={e => updateReviewedProfile({ summary: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700 sm:col-span-2" htmlFor="cv-review-skills">
+                    Skills (comma-separated)
+                    <textarea id="cv-review-skills" aria-label="Review skills" rows={2} value={(reviewProfile.skills || []).join(', ')}
+                      onChange={e => updateReviewedProfile({ skills: e.target.value.split(',').map(skill => skill.trim()).filter(Boolean) })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700 sm:col-span-2" htmlFor="cv-review-certifications">
+                    Certifications (comma-separated)
+                    <textarea id="cv-review-certifications" aria-label="Review certifications" rows={2} value={(reviewProfile.certifications || []).join(', ')}
+                      onChange={e => updateReviewedProfile({ certifications: e.target.value.split(',').map(value => value.trim()).filter(Boolean) })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700" htmlFor="cv-review-portfolio">
+                    Portfolio URL
+                    <input id="cv-review-portfolio" aria-label="Review portfolio URL" type="url" value={reviewProfile.portfolio_url || ''}
+                      onChange={e => updateReviewedProfile({ portfolio_url: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700" htmlFor="cv-review-linkedin">
+                    LinkedIn URL
+                    <input id="cv-review-linkedin" aria-label="Review LinkedIn URL" type="url" value={reviewProfile.linkedin_url || ''}
+                      onChange={e => updateReviewedProfile({ linkedin_url: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-700 sm:col-span-2" htmlFor="cv-review-github">
+                    GitHub URL
+                    <input id="cv-review-github" aria-label="Review GitHub URL" type="url" value={reviewProfile.github_url || ''}
+                      onChange={e => updateReviewedProfile({ github_url: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                  </label>
+                </div>
+
+                {(reviewProfile.experiences || []).length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Work experience</h3>
+                    {(reviewProfile.experiences || []).map((experience, index) => (
+                      <div key={experience.id} className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-slate-200 p-3">
+                        <label className="text-xs font-semibold text-slate-700">Role
+                          <input aria-label={`Review experience ${index + 1} role`} value={experience.title} onChange={e => {
+                            const experiences = [...(reviewProfile.experiences || [])]; experiences[index] = { ...experience, title: e.target.value }; updateReviewedProfile({ experiences });
+                          }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                        </label>
+                        <label className="text-xs font-semibold text-slate-700">Organization
+                          <input aria-label={`Review experience ${index + 1} organization`} value={experience.company} onChange={e => {
+                            const experiences = [...(reviewProfile.experiences || [])]; experiences[index] = { ...experience, company: e.target.value }; updateReviewedProfile({ experiences });
+                          }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                        </label>
+                        <label className="text-xs font-semibold text-slate-700">Dates
+                          <input aria-label={`Review experience ${index + 1} dates`} value={`${experience.start_date || ''}${experience.current ? ' – Present' : experience.end_date ? ` – ${experience.end_date}` : ''}`}
+                            onChange={e => {
+                              const [start_date = '', endValue = ''] = e.target.value.split(/\s+[–-]\s+/);
+                              const current = /^(present|current|now)$/i.test(endValue.trim());
+                              const experiences = [...(reviewProfile.experiences || [])]; experiences[index] = { ...experience, start_date, end_date: current ? undefined : endValue, current }; updateReviewedProfile({ experiences });
+                            }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                        </label>
+                        <label className="text-xs font-semibold text-slate-700 sm:col-span-2">Description
+                          <textarea aria-label={`Review experience ${index + 1} description`} rows={2} value={experience.description}
+                            onChange={e => { const experiences = [...(reviewProfile.experiences || [])]; experiences[index] = { ...experience, description: e.target.value }; updateReviewedProfile({ experiences }); }}
+                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {(reviewProfile.educations || []).length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Education</h3>
+                    {(reviewProfile.educations || []).map((education, index) => (
+                      <div key={education.id} className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-slate-200 p-3">
+                        <label className="text-xs font-semibold text-slate-700">Degree and field
+                          <input aria-label={`Review education ${index + 1} degree`} value={[education.degree, education.field_of_study].filter(Boolean).join(' in ')} onChange={e => {
+                            const [degree = '', ...field] = e.target.value.split(/\s+in\s+/i); const educations = [...(reviewProfile.educations || [])]; educations[index] = { ...education, degree, field_of_study: field.join(' in ') }; updateReviewedProfile({ educations });
+                          }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                        </label>
+                        <label className="text-xs font-semibold text-slate-700">Institution
+                          <input aria-label={`Review education ${index + 1} institution`} value={education.institution} onChange={e => {
+                            const educations = [...(reviewProfile.educations || [])]; educations[index] = { ...education, institution: e.target.value }; updateReviewedProfile({ educations });
+                          }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                        </label>
+                        <label className="text-xs font-semibold text-slate-700 sm:col-span-2">Years
+                          <input aria-label={`Review education ${index + 1} years`} value={`${education.start_year || ''}${education.end_year ? ` – ${education.end_year}` : ''}`} onChange={e => {
+                            const [start_year = '', end_year = ''] = e.target.value.split(/\s+[–-]\s+/); const educations = [...(reviewProfile.educations || [])]; educations[index] = { ...education, start_year, end_year: end_year || undefined }; updateReviewedProfile({ educations });
+                          }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal" />
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-100 pt-4">
+                  <button type="button" onClick={handleApplyReviewedProfile} disabled={updatingProfile}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#085587] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#074771] disabled:opacity-60">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {updatingProfile ? 'Saving reviewed details...' : 'Update my profile with reviewed details'}
+                  </button>
+                  <button type="button" onClick={() => { setReviewProfile(null); setReviewEmail(''); setParseWarnings([]); }}
+                    className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                    Discard review
+                  </button>
+                </div>
+              </section>
+            )}
+
+            <div data-candidate-cv-print className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0">
               {/* Printable Header */}
               <div className="border-b border-slate-200 pb-6 space-y-2">
                 <div className="flex items-center justify-between">
@@ -320,8 +556,11 @@ export const CVBuilderPage: React.FC<CVBuilderPageProps> = ({ onNavigate }) => {
                   value={cvData.summary || ''}
                   onChange={(e) => setCvData({ ...cvData, summary: e.target.value })}
                   placeholder="Summary statement..."
-                  className="w-full p-2 text-xs border border-transparent hover:border-slate-200 focus:border-[#085587] rounded-lg focus:outline-none transition-colors"
+                  className="w-full p-2 text-xs border border-transparent hover:border-slate-200 focus:border-[#085587] rounded-lg focus:outline-none transition-colors print:hidden"
                 />
+                <p className="hidden whitespace-pre-wrap text-xs leading-relaxed text-slate-600 print:block">
+                  {cvData.summary || ''}
+                </p>
               </div>
 
               {/* Skills */}

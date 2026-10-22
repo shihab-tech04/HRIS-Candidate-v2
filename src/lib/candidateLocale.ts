@@ -540,6 +540,20 @@ export const CANDIDATE_BENGALI: Readonly<Record<string, string>> = {
   'I acknowledge that I have read and agree to comply with the Synesis IT Corporate Policies and Information Security standards.': 'আমি নিশ্চিত করছি যে Synesis IT-এর করপোরেট নীতি ও তথ্য-নিরাপত্তার মানদণ্ড পড়েছি এবং সেগুলো মেনে চলতে সম্মত।',
   'Submitting to HR...': 'HR-এ জমা হচ্ছে…',
   'Complete & Submit Preboarding Packet': 'প্রাক-যোগদানের নথি সম্পন্ন করে জমা দিন',
+  'Edit job alert': 'চাকরির সতর্কতা সম্পাদনা করুন',
+  'Updating alert…': 'সতর্কতা হালনাগাদ হচ্ছে…',
+  'Update job alert': 'চাকরির সতর্কতা হালনাগাদ করুন',
+  'Cancel edit': 'সম্পাদনা বাতিল করুন',
+  'Edit {title} alert': '{title} সতর্কতা সম্পাদনা করুন',
+  'Pause {title} alert': '{title} সতর্কতা স্থগিত করুন',
+  'Resume {title} alert': '{title} সতর্কতা আবার চালু করুন',
+  'Edit': 'সম্পাদনা',
+  'Pause': 'স্থগিত করুন',
+  'Resume': 'আবার চালু করুন',
+  '“{title}” is active.': '“{title}” সক্রিয়।',
+  '“{title}” is paused.': '“{title}” স্থগিত করা হয়েছে।',
+  '“{title}” was updated.': '“{title}” হালনাগাদ করা হয়েছে।',
+  'Unable to update this job alert.': 'চাকরির সতর্কতা হালনাগাদ করা যায়নি।',
 };
 
 export function translateCandidateText(
