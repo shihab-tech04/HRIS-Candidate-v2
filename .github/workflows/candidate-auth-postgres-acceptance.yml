@@ -1,7 +1,7 @@
 name: Candidate privacy and full journey acceptance (disposable only)
 on:
   push:
-    branches: [development/hris-checkpoints, release/candidate-stable-20261017, work/candidate-phase06-07-20261020]
+    branches: [development/hris-checkpoints, release/candidate-stable-20261017, work/candidate-phase06-07-20261020, integration/ws05-candidate-final-review-20261022]
   workflow_dispatch:
     inputs:
       main_ref:
@@ -22,14 +22,14 @@ concurrency:
 
 jobs:
   candidate-auth-postgres:
-    if: github.ref == 'refs/heads/development/hris-checkpoints' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/')) || (github.event_name == 'push' && (github.ref == 'refs/heads/release/candidate-stable-20261017' || github.ref == 'refs/heads/work/candidate-phase06-07-20261020'))
+    if: github.ref == 'refs/heads/integration/ws05-candidate-final-review-20261022' || github.ref == 'refs/heads/development/hris-checkpoints' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/')) || (github.event_name == 'push' && (github.ref == 'refs/heads/release/candidate-stable-20261017' || github.ref == 'refs/heads/work/candidate-phase06-07-20261020'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CI: '1'
       HRIS_DOCKER_CONTEXT: default
       HRIS_MAIN_REPO_ROOT: ${{ github.workspace }}/HRIS-v2
-      HRIS_MAIN_REF: ${{ github.ref == 'refs/heads/release/candidate-stable-20261017' && 'release/hris-stable-20261017' || inputs.main_ref || 'development/hris-checkpoints' }}
+      HRIS_MAIN_REF: ${{ github.ref == 'refs/heads/integration/ws05-candidate-final-review-20261022' && 'integration/ws05-main-final-review-20261022' || github.ref == 'refs/heads/release/candidate-stable-20261017' && 'release/hris-stable-20261017' || inputs.main_ref || 'development/hris-checkpoints' }}
       HRIS_CANDIDATE_C1_TEST_WORKDIR: /tmp/synesis-candidate-c1-auth-github
       HRIS_CANDIDATE_C1_API_PORT: '55721'
       HRIS_CANDIDATE_C1_DB_PORT: '55722'
