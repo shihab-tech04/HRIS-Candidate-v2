@@ -10,7 +10,7 @@ export const SUPABASE_ANON_KEY =
   'sb_publishable_4xzRp7eeyLuj1fQmmx_Vtw_-g_4MeCT';
 
 // The released Candidate application must not silently use an old Supabase project.
-if (import.meta.env.PROD && SUPABASE_URL !== 'https://xfuxnljfrgvusbrpvxpa.supabase.co') {
+if (import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY !== 'true' && SUPABASE_URL !== 'https://xfuxnljfrgvusbrpvxpa.supabase.co') {
   throw new Error('Candidate production release is configured for an unapproved HRIS database.');
 }
 
