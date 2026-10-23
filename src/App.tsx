@@ -262,10 +262,19 @@ function MainAppContent() {
 }
 
 export default function App() {
+  // The public-only deployment must not initialize candidate Auth or private profile reads.
+  if (import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true') {
+    return (
+      <CandidateLocaleProvider>
+        <PublicOnlyCareers />
+      </CandidateLocaleProvider>
+    );
+  }
+
   return (
     <CandidateLocaleProvider>
       <AuthProvider>
-        {import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true' ? <PublicOnlyCareers /> : <MainAppContent />}
+        <MainAppContent />
       </AuthProvider>
     </CandidateLocaleProvider>
   );
