@@ -2201,7 +2201,7 @@ try {
   });
   await employeeManagerMobilePage.goto(`http://127.0.0.1:${mainPort}/`, { waitUntil: 'domcontentloaded' });
   await employeeManagerMobilePage.getByRole('button', { name: 'Open navigation menu' }).click();
-  await employeeManagerMobilePage.getByRole('complementary', { name: 'HRIS navigation' }).getByRole('button', { name: 'Onboarding', exact: true }).click();
+  await employeeManagerMobilePage.getByRole('dialog', { name: 'HRIS navigation' }).getByRole('button', { name: 'Onboarding', exact: true }).click();
   const mobileActivationCard = employeeManagerMobilePage.locator('section[aria-labelledby="preboarding-queue-heading"]');
   await mobileActivationCard.getByText(users[0].email, { exact: true }).waitFor({ timeout: 20000 });
   assert(await mobileActivationCard.getByRole('button', { name: 'Activate employee', exact: true }).isVisible(),
