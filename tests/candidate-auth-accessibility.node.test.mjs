@@ -24,3 +24,19 @@ test('Candidate Auth labels every field and announces errors and success states'
   assert.match(modal, /role="alert" aria-live="assertive"/);
   assert.match(modal, /role="status" aria-live="polite"/);
 });
+
+
+const signupSource = readFileSync(new URL('../src/context/AuthContext.tsx', import.meta.url), 'utf8');
+const qaEnv = readFileSync(new URL('../.env.qa', import.meta.url), 'utf8');
+
+test('Candidate signup requires explicit tenant-scoped signup metadata (no silent default)', () => {
+  assert.match(signupSource, /VITE_CANDIDATE_TENANT_SLUG/);
+  assert.match(signupSource, /if \(!\/\^\[a-z0-9\]/);
+  assert.match(signupSource, /account_type: 'candidate', tenant_slug: tenantSlug/);
+  assert.match(signupSource, /Candidate tenant is not configured/);
+  assert.doesNotMatch(signupSource, /tenantSlug\s*=\s*['"]synesis-it['"]/);
+  assert.match(qaEnv, /^VITE_CANDIDATE_TENANT_SLUG=synesis-it$/m);
+  assert.match(qaEnv, /^VITE_SUPABASE_URL=https:\/\/xfuxnljfrgvusbrpvxpa\.supabase\.co$/m);
+  assert.match(qaEnv, /^VITE_SUPABASE_ANON_KEY=sb_publishable_[A-Za-z0-9_-]+$/m);
+  assert.doesNotMatch(qaEnv.split('\n').filter(line => /^[A-Z_]+[A-Z_0-9]*=/.test(line)).join('\n'), /service_role|sb_secret_/);
+});
