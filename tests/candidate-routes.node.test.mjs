@@ -72,7 +72,17 @@ test('public-only production root never mounts the candidate authentication prov
   assert.ok(root.startsWith('export default function App() {'));
   assert.match(root, /if \(import\.meta\.env\.PROD && import\.meta\.env\.VITE_CANDIDATE_PUBLIC_ONLY === 'true'\)/);
   const publicBranch = root.slice(0, root.indexOf('\n  return (\n    <CandidateLocaleProvider>\n      <AuthProvider>'));
-  assert.match(publicBranch, /<CandidateLocaleProvider>[\s\S]*?<PublicOnlyCareers \/>[\s\S]*?<\/CandidateLocaleProvider>/);
+  assert.match(publicBranch, /<CandidateLocaleProvider>[\s\S]*?<PublicOnlyAuthProvider>[\s\S]*?<PublicOnlyCareers \/>[\s\S]*?<\/PublicOnlyAuthProvider>[\s\S]*?<\/CandidateLocaleProvider>/);
   assert.doesNotMatch(publicBranch, /<AuthProvider>|<MainAppContent \/>/);
   assert.match(root, /<AuthProvider>\s*<MainAppContent \/>\s*<\/AuthProvider>/);
+});
+
+test('public-only guest context satisfies vacancy components without initializing any Auth or profile session', () => {
+  const source = readFileSync(new URL('../src/context/AuthContext.tsx', import.meta.url), 'utf8');
+  const publicGuest = source.slice(source.indexOf('export const PublicOnlyAuthProvider:'), source.indexOf('export const useAuth ='));
+  assert.match(publicGuest, /<AuthContext\.Provider value=\{\{/);
+  assert.match(publicGuest, /user: null/);
+  assert.match(publicGuest, /profile: null/);
+  assert.match(publicGuest, /signIn: unavailableInPublicOnly/);
+  assert.doesNotMatch(publicGuest, /getSupabaseClient\(|loadProfile\(|localStorage|fetch\(/);
 });

@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider, PublicOnlyAuthProvider, useAuth } from './context/AuthContext';
 import { CandidateLocaleProvider } from './context/CandidateLocaleContext';
 import { Navbar } from './components/common/Navbar';
 import { Footer } from './components/common/Footer';
@@ -266,7 +266,9 @@ export default function App() {
   if (import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY === 'true') {
     return (
       <CandidateLocaleProvider>
-        <PublicOnlyCareers />
+        <PublicOnlyAuthProvider>
+          <PublicOnlyCareers />
+        </PublicOnlyAuthProvider>
       </CandidateLocaleProvider>
     );
   }
