@@ -66,3 +66,13 @@ test('a direct application link waits for Auth restoration before opening sign-i
   assert.match(app, /if \(authLoading \|\| currentTab !== 'apply' \|\| user\) return/);
   assert.match(app, /setAuthModalOpen\(true\)/);
 });
+
+test('public-only production root never mounts the candidate authentication provider', () => {
+  const root = app.slice(app.indexOf('export default function App()'));
+  assert.ok(root.startsWith('export default function App() {'));
+  assert.match(root, /if \(import\.meta\.env\.PROD && import\.meta\.env\.VITE_CANDIDATE_PUBLIC_ONLY === 'true'\)/);
+  const publicBranch = root.slice(0, root.indexOf('\n  return (\n    <CandidateLocaleProvider>\n      <AuthProvider>'));
+  assert.match(publicBranch, /<CandidateLocaleProvider>[\s\S]*?<PublicOnlyCareers \/>[\s\S]*?<\/CandidateLocaleProvider>/);
+  assert.doesNotMatch(publicBranch, /<AuthProvider>|<MainAppContent \/>/);
+  assert.match(root, /<AuthProvider>\s*<MainAppContent \/>\s*<\/AuthProvider>/);
+});
