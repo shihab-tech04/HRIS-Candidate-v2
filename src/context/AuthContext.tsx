@@ -347,6 +347,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
+// Public Careers uses a static guest context because vacancy components call useAuth().
+// This provider has no session, login, profile fetch, or Supabase initialization.
+const unavailableInPublicOnly = async () => ({
+  success: false,
+  error: 'Candidate accounts and applications are unavailable in public Careers mode.',
+});
+
+export const PublicOnlyAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <AuthContext.Provider value={{
+    user: null,
+    profile: null,
+    loading: false,
+    profileLoading: false,
+    profileError: null,
+    signIn: unavailableInPublicOnly,
+    signUp: unavailableInPublicOnly,
+    signOut: async () => {},
+    resetPassword: unavailableInPublicOnly,
+    passwordRecoveryRequired: false,
+    passwordRecoveryError: null,
+    updateRecoveryPassword: unavailableInPublicOnly,
+    cancelPasswordRecovery: async () => {},
+    signInAsDemoCandidate: async () => {},
+    refreshProfile: async () => {},
+  }}>
+    {children}
+  </AuthContext.Provider>
+);
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
