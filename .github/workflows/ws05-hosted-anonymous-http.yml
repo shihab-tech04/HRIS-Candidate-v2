@@ -49,7 +49,7 @@ jobs:
 
           checks = [
               ("published_jobs", "/rest/v1/candidate_published_jobs?select=*&limit=3", True),
-              ("candidate_profiles", "/rest/v1/candidate_profiles?select=id&limit=1", False),
+              ("candidate_profiles", "/rest/v1/candidate_profiles?select=user_id&limit=1", False),
               ("candidate_cvs", "/rest/v1/candidate_cvs?select=id&limit=1", False),
               ("job_applications", "/rest/v1/job_applications?select=id&limit=1", False),
               ("candidate_saved_jobs", "/rest/v1/candidate_saved_jobs?select=id&limit=1", False),
