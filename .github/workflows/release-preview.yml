@@ -1,17 +1,12 @@
 name: Candidate-v2 verified GitHub Pages release
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/release-preview.yml'
-      - 'src/**'
-      - 'tests/**'
-      - 'index.html'
-      - '404.html'
-      - 'package.json'
-      - 'vite.config.ts'
-      - 'bun.lock*'
   workflow_dispatch:
+    inputs:
+      release_approved:
+        description: Confirm that the owner has explicitly approved this production release.
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,18 +17,31 @@ concurrency:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main' && inputs.release_approved == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      - name: Restore immutable reviewed Main HRIS story catalogue
+        run: |
+          set -euo pipefail
+          expected_sha=aefa24196b973db586e754d1f7fa20fab49b29b7
+          git clone --quiet --depth 1 --branch integration/ws05-main-final-review-20261022 https://github.com/shihab-tech04/HRIS-v2.git ../HRIS-v2
+          if [ "$(git -C ../HRIS-v2 rev-parse HEAD)" != "$expected_sha" ]; then
+            git -C ../HRIS-v2 fetch --no-tags --depth 1 origin "$expected_sha"
+            git -C ../HRIS-v2 checkout --detach "$expected_sha"
+          fi
+          test -s ../HRIS-v2/docs/programme/recovered-source/CANONICAL_USER_STORY_MATRIX.json
+          test "$(git -C ../HRIS-v2 rev-parse HEAD)" = "$expected_sha"
       - run: bun test
+      - run: npm run test:routes
       - run: bun run lint
       - name: Build compiled Candidate-v2 Pages artifact
         env:
-          VITE_SUPABASE_URL: https://oslgwxaqfbteqtwqvdzs.supabase.co
-          VITE_SUPABASE_ANON_KEY: sb_publishable_fjNbVQbzBzIA8INgwJyPJQ_6vTd3PZv
+          VITE_SUPABASE_URL: https://xfuxnljfrgvusbrpvxpa.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_4xzRp7eeyLuj1fQmmx_Vtw_-g_4MeCT
           VITE_ENABLE_DEMO_MODE: 'false'
           VITE_CANDIDATE_PUBLIC_ONLY: 'true'
         run: |
@@ -52,6 +60,7 @@ jobs:
           path: dist
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main' && inputs.release_approved == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

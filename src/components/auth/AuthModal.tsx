@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { CandidateLocaleSwitch, useCandidateLocale } from '../../context/CandidateLocaleContext';
 import { X, Mail, Lock, User, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialMode?: 'signin' | 'signup';
+  initialMode?: 'signin' | 'signup' | 'forgot' | 'recovery';
   returnNotice?: string;
   onSuccess?: () => void;
 }
@@ -17,14 +18,94 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   returnNotice,
   onSuccess
 }) => {
-  const { signIn, signUp, resetPassword, signInAsDemoCandidate } = useAuth();
-  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(initialMode);
+  const { signIn, signUp, resetPassword, updateRecoveryPassword, signInAsDemoCandidate } = useAuth();
+  const { t } = useCandidateLocale();
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot' | 'recovery'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState(returnNotice);
   const [loading, setLoading] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const fullNameInputRef = useRef<HTMLInputElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setMode(initialMode);
+    setError(null);
+    setSuccessMsg(null);
+    setNoticeMessage(returnNotice);
+  }, [isOpen, initialMode, returnNotice]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!wasOpenRef.current) {
+      openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      wasOpenRef.current = true;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      (mode === 'signup' ? fullNameInputRef.current : mode === 'recovery' ? passwordInputRef.current : emailInputRef.current)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen, mode]);
+
+  useEffect(() => {
+    if (isOpen || !wasOpenRef.current) return;
+    wasOpenRef.current = false;
+    const opener = openerRef.current;
+    openerRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0);
+      if (!focusable.length) {
+        event.preventDefault();
+        titleRef.current?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      if (activeIndex < 0) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeIndex === 0) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeIndex === focusable.length - 1) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -63,7 +144,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (!res.success) {
           setError(res.error || 'Password recovery request failed.');
         } else {
+          setNoticeMessage(undefined);
           setSuccessMsg('Password reset instructions sent. Please check your inbox.');
+        }
+      } else if (mode === 'recovery') {
+        if (password !== confirmPassword) {
+          setError('Passwords do not match.');
+          return;
+        }
+        const res = await updateRecoveryPassword(password);
+        if (!res.success) {
+          setError(res.error || 'Password update failed. Please retry.');
+        } else {
+          setMode('signin');
+          setPassword('');
+          setConfirmPassword('');
+          setSuccessMsg('Password updated. Please sign in with your new password.');
         }
       }
     } catch (err: any) {
@@ -82,38 +178,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" role="presentation">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="candidate-auth-dialog-title" aria-describedby="candidate-auth-dialog-description" className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header pattern */}
         <div className="bg-[#085587] text-white px-6 py-5 relative">
           <button
+            type="button"
             onClick={onClose}
+            aria-label={t(mode === 'recovery' ? 'Cancel password reset' : 'Close authentication dialog')}
             className="absolute top-4 right-4 text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs uppercase tracking-wider font-semibold text-sky-200">
-              Synesis Careers Portal
+              {t('Synesis Careers Portal')}
             </span>
           </div>
-          <h2 className="text-xl font-bold tracking-tight">
-            {mode === 'signin' && 'Welcome Back'}
-            {mode === 'signup' && 'Create Candidate Account'}
-            {mode === 'forgot' && 'Reset Your Password'}
+          <h2 ref={titleRef} id="candidate-auth-dialog-title" tabIndex={-1} className="text-xl font-bold tracking-tight">
+            {mode === 'signin' && t('Welcome Back')}
+            {mode === 'signup' && t('Create Candidate Account')}
+            {mode === 'forgot' && t('Reset Your Password')}
+            {mode === 'recovery' && t('Set a New Password')}
           </h2>
-          <p className="text-xs text-sky-100/90 mt-1">
-            {mode === 'signin' && 'Sign in to access your applications, interviews, and profile.'}
-            {mode === 'signup' && 'Register once to apply to opportunities and manage your recruitment journey.'}
-            {mode === 'forgot' && 'Enter your email address to receive password reset instructions.'}
+          <p id="candidate-auth-dialog-description" className="text-xs text-sky-100/90 mt-1">
+            {mode === 'signin' && t('Sign in to access your applications, interviews, and profile.')}
+            {mode === 'signup' && t('Register once to apply to opportunities and manage your recruitment journey.')}
+            {mode === 'forgot' && t('Enter your email address to receive password reset instructions.')}
+            {mode === 'recovery' && t('Choose and confirm a new password for your account.')}
           </p>
         </div>
 
         <div className="p-6">
-          {returnNotice && (
-            <div className="mb-4 p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-800 flex items-start gap-2">
+          <div className="flex justify-end mb-3">
+            <CandidateLocaleSwitch />
+          </div>
+          {noticeMessage && (
+            <div role="status" className="mb-4 p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-800 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-[#085587] shrink-0 mt-0.5" />
-              <span>{returnNotice}</span>
+              <span>{t(noticeMessage)}</span>
             </div>
           )}
 
@@ -123,11 +226,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-[#085587]" />
-                Evaluation / Reviewer Quick Access
+                {t('Evaluation / Reviewer Quick Access')}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 mb-2.5">
-              Instant sign-in with verified sample candidate profile, active applications, interview invitation, and offer record.
+              {t('Instant sign-in with verified sample candidate profile, active applications, interview invitation, and offer record.')}
             </p>
             <button
               type="button"
@@ -135,7 +238,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               disabled={loading}
               className="w-full py-2 px-3 text-xs font-medium text-[#085587] bg-white border border-[#085587]/30 hover:border-[#085587] hover:bg-sky-50/50 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
             >
-              Sign In as Farhan Rahman (Demo Candidate)
+              {t('Sign In as Farhan Rahman (Demo Candidate)')}
               <ArrowRight className="w-3 h-3" />
             </button>
           </div>
@@ -147,80 +250,87 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="w-full border-t border-slate-200"></div>
             </div>
             <div className="relative flex justify-center text-xs">
-              <span className="px-2 bg-white text-slate-500 font-medium">Or enter credentials</span>
+              <span className="px-2 bg-white text-slate-500 font-medium">{t('Or enter credentials')}</span>
             </div>
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+            <div role="alert" aria-live="assertive" className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <span>{error}</span>
+              <span>{t(error)}</span>
             </div>
           )}
 
           {successMsg && (
-            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-start gap-2">
+            <div role="status" aria-live="polite" className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <span>{successMsg}</span>
+              <span>{t(successMsg)}</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3.5">
             {mode === 'signup' && (
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Full Legal Name
+                <label htmlFor="candidate-auth-full-name" className="block text-xs font-semibold text-slate-700 mb-1">
+                  {t('Full Legal Name')}
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    ref={fullNameInputRef}
+                    id="candidate-auth-full-name"
                     type="text"
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    placeholder="e.g. Farhan Rahman"
+                    placeholder={t('e.g. Farhan Rahman')}
                     className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#085587] focus:border-transparent"
                   />
                 </div>
               </div>
             )}
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Email Address
+            {mode !== 'recovery' && <div>
+              <label htmlFor="candidate-auth-email" className="block text-xs font-semibold text-slate-700 mb-1">
+                {t('Email Address')}
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
+                  ref={emailInputRef}
+                  id="candidate-auth-email"
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="candidate@example.com"
+                  placeholder={t('candidate@example.com')}
                   className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#085587] focus:border-transparent"
                 />
               </div>
-            </div>
+            </div>}
 
             {mode !== 'forgot' && (
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-700">Password</label>
+                  <label htmlFor="candidate-auth-password" className="text-xs font-semibold text-slate-700">{t(mode === 'recovery' ? 'New Password' : 'Password')}</label>
                   {mode === 'signin' && (
                     <button
                       type="button"
                       onClick={() => setMode('forgot')}
                       className="text-[11px] text-[#085587] hover:underline"
                     >
-                      Forgot password?
+                      {t('Forgot password?')}
                     </button>
                   )}
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    ref={mode === 'recovery' ? passwordInputRef : undefined}
+                    id="candidate-auth-password"
                     type="password"
                     required
+                    autoComplete={mode === 'recovery' || mode === 'signup' ? 'new-password' : 'current-password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
@@ -230,19 +340,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             )}
 
+            {mode === 'recovery' && <div>
+              <label htmlFor="candidate-auth-confirm-password" className="block text-xs font-semibold text-slate-700 mb-1">{t('Confirm New Password')}</label>
+              <input
+                id="candidate-auth-confirm-password"
+                type="password"
+                required
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={event => setConfirmPassword(event.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#085587] focus:border-transparent"
+              />
+            </div>}
+
             <button
               type="submit"
               disabled={loading}
               className="w-full py-2.5 px-4 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors shadow-sm disabled:opacity-50 mt-2"
             >
               {loading ? (
-                'Processing...'
+                t('Processing...')
               ) : mode === 'signin' ? (
-                'Sign In to Synesis Careers'
+                t('Sign In to Synesis Careers')
               ) : mode === 'signup' ? (
-                'Create Candidate Account'
+                t('Create Candidate Account')
+              ) : mode === 'recovery' ? (
+                t('Update Password')
               ) : (
-                'Send Recovery Email'
+                t('Send Recovery Email')
               )}
             </button>
           </form>
@@ -251,42 +376,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="mt-5 pt-4 border-t border-slate-100 text-center text-xs text-slate-600">
             {mode === 'signin' && (
               <p>
-                Don't have an account yet?{' '}
+                {t("Don't have an account yet?")}{' '}
                 <button
                   type="button"
                   onClick={() => setMode('signup')}
                   className="font-semibold text-[#085587] hover:underline ml-1"
                 >
-                  Create one now
+                  {t('Create one now')}
                 </button>
               </p>
             )}
 
             {mode === 'signup' && (
               <p>
-                Already have an account?{' '}
+                {t('Already have an account?')}{' '}
                 <button
                   type="button"
                   onClick={() => setMode('signin')}
                   className="font-semibold text-[#085587] hover:underline ml-1"
                 >
-                  Sign in
+                  {t('Sign in')}
                 </button>
               </p>
             )}
 
             {mode === 'forgot' && (
               <p>
-                Remembered your credentials?{' '}
+                {t('Remembered your credentials?')}{' '}
                 <button
                   type="button"
                   onClick={() => setMode('signin')}
                   className="font-semibold text-[#085587] hover:underline ml-1"
                 >
-                  Back to Sign In
+                  {t('Back to Sign In')}
                 </button>
               </p>
             )}
+            {mode === 'recovery' && <p>{t('This secure link is for one password change. You can cancel to return to the careers site.')}</p>}
           </div>
         </div>
       </div>

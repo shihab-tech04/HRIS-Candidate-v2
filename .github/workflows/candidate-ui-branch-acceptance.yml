@@ -1,0 +1,63 @@
+name: Candidate Figma UI branch acceptance (no deploy)
+on:
+  push:
+    branches: [work/ws03-figma-first-20261021, integration/candidate-figma-cv-unified-20261022, integration/candidate-new-backend-cutover-20261022, integration/ws05-candidate-final-review-20261022]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: candidate-figma-ui-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  candidate-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout trusted Main HRIS source for canonical Candidate route contracts
+        run: git clone --depth 1 --branch development/hris-checkpoints https://github.com/shihab-tech04/HRIS-v2.git "$GITHUB_WORKSPACE/../HRIS-v2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --include=optional --no-audit --no-fund
+      - name: TypeScript and Candidate route/auth/localization regressions
+        run: npm run lint && npm run test:routes
+      - name: Production-shaped Candidate public UI build only
+        run: |
+          VITE_CANDIDATE_PUBLIC_ONLY=true \
+          VITE_SUPABASE_URL=http://127.0.0.1:4175 \
+          VITE_SUPABASE_ANON_KEY=ci-only-placeholder \
+            npx vite build --base=/HRIS-Candidate-v2/
+          test -s dist/index.html
+          grep -Eq 'src="/HRIS-Candidate-v2/assets/[^"]+\.js"' dist/index.html
+          grep -Eq 'href="/HRIS-Candidate-v2/assets/[^"]+\.css"' dist/index.html
+      - name: Exercise public-only Candidate UI and capture responsive renders (read-only intercepted API)
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-package-lock --include=optional --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+          npx vite preview --base=/HRIS-Candidate-v2/ --host 127.0.0.1 --port 4175 --strictPort >"$RUNNER_TEMP/candidate-preview.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4175/HRIS-Candidate-v2/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/candidate-public-visual-smoke.mjs
+      - name: Upload rendered Candidate screenshots (empty public data only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-public-responsive-screenshots
+          path: ui-evidence/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload disposable static build for independent inspection, never deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-public-ui-static-build
+          path: dist/
+          retention-days: 7

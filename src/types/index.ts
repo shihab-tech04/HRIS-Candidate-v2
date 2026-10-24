@@ -27,6 +27,7 @@ export interface PublishedJob {
   published_at: string;
   created_at: string;
   screening_questions?: ScreeningQuestion[];
+  required_documents?: string[];
 }
 
 export type ScreeningQuestionType = 'text' | 'yes_no' | 'select' | 'multiselect' | 'number';
@@ -61,6 +62,16 @@ export interface CandidateProfile {
   availability?: string;
   created_at: string;
   updated_at: string;
+  profile_data?: Record<string, unknown>;
+}
+
+export interface CandidateStoredDocument {
+  id: string;
+  title: string;
+  fileName: string;
+  fileUrl: string;
+  contentType: string;
+  uploadedAt: string;
 }
 
 export interface CandidateExperience {
@@ -104,6 +115,7 @@ export type ApplicationStatus =
   | 'under_review'
   | 'screening'
   | 'interview_scheduled'
+  | 'interview_completed'
   | 'assessment_pending'
   | 'offer_extended'
   | 'offer_accepted'
@@ -117,6 +129,8 @@ export interface JobApplication {
   user_id: string;
   job_id: string;
   job?: PublishedJob;
+  job_title?: string;
+  department?: string;
   cv_id: string;
   cv_title?: string;
   status: ApplicationStatus;
@@ -130,15 +144,15 @@ export interface JobApplication {
   updated_at: string;
   withdrawal_reason?: string;
   withdrawn_at?: string;
+  stage_history?: ApplicationStageHistory[];
 }
 
 export interface ApplicationStageHistory {
   id: string;
   application_id: string;
-  stage_name: string;
-  stage_date: string;
-  candidate_visible_status: string;
-  candidate_notes?: string;
+  stage: string;
+  created_at: string;
+  note?: string;
 }
 
 export interface InterviewInvitation {
@@ -149,6 +163,7 @@ export interface InterviewInvitation {
   round_name: string;
   scheduled_at: string; // ISO date string
   duration_minutes: number;
+  timezone?: string;
   format: 'Video Call' | 'In-person' | 'Phone Call' | 'To be confirmed';
   meeting_link?: string;
   location?: string;
@@ -156,6 +171,7 @@ export interface InterviewInvitation {
   instructions: string;
   status: 'pending' | 'accepted' | 'declined' | 'reschedule_requested' | 'completed' | 'cancelled';
   candidate_notes?: string;
+  candidate_proposed_times?: string;
   created_at: string;
 }
 
@@ -175,6 +191,7 @@ export interface CandidateAssessment {
     file_name?: string;
     submitted_at: string;
   };
+  reviewed_at?: string;
   created_at: string;
 }
 
@@ -201,6 +218,7 @@ export interface JobOffer {
   currency: string;
   salary_period: 'monthly' | 'annual';
   benefits_summary: string[];
+  terms?: string;
   start_date: string;
   expiry_date: string;
   offer_document_url?: string;
@@ -213,12 +231,10 @@ export interface JobOffer {
 
 export interface OnboardingHandoff {
   id: string;
-  offer_id: string;
   application_id: string;
-  user_id: string;
-  status: 'pending_candidate_info' | 'submitted_for_verification' | 'verified_by_hr' | 'joining_confirmed';
-  completed_steps: string[];
-  personal_data: {
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  candidate_completed_steps: string[];
+  candidate_personal_data: {
     national_id?: string;
     passport_number?: string;
     date_of_birth?: string;
@@ -232,9 +248,7 @@ export interface OnboardingHandoff {
     tax_identification_number?: string;
     policies_accepted?: boolean;
   };
-  hr_verification_notes?: string;
-  joining_date?: string;
-  employee_id?: string;
+  candidate_submitted_at?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -1,6 +1,18 @@
 # C1 SECURITY TEST RESULTS — do not confuse contracts with authorization tests
 
-Source checkpoint f41562d; SQL metadata read from production project oslgwxaqfbteqtwqvdzs. No test users, auth sessions, writes, SQL migrations, private documents or offers were created or modified.
+## Update — 2026-10-14
+
+The Main source now revokes all client table privileges on `candidate_application_stage_history` and the other confidential Candidate workflow tables in `supabase/migrations/20261013052128_hris_candidate_c1_revoke_direct_table_access.sql`. Candidate-facing history continues through the filtered recruitment-context RPC.
+
+A read-only SQL privilege check against a fresh disposable local Supabase database returned the expected result for all seven restricted tables: `anon SELECT=false`, `authenticated SELECT=false`, and `service_role SELECT=true`. This verifies the database ACL remediation; it is not counted as a two-candidate Auth/RLS acceptance run.
+
+The dedicated Candidate C1 Auth/RLS runner did not complete. Its first attempt received a GoTrue 504 during synthetic-user creation. A later attempt created synthetic Auth users but failed the runner's check that those users appeared in the same isolated Postgres database (`GoTrue-created Auth users did not map to the isolated database`). The runner cleaned the created users. A separate read-only Auth endpoint check returned HTTP 200 with zero users. The suite did not reach its two-candidate direct-read and tenant-isolation assertions; no full-suite PASS/FAIL count is available.
+
+**Current disposition:** the raw-table privilege exposure is structurally remediated and locally ACL-verified. Candidate C1 remains **NOT CERTIFIED** until the isolated Auth/Postgres identity-mapping issue is resolved and the full two-identity suite passes. Other rows below remain the historical audit baseline unless separately updated.
+
+## Historical baseline — source checkpoint f41562d
+
+SQL metadata was read from production project `oslgwxaqfbteqtwqvdzs`. At that time, no test users, Auth sessions, writes, SQL migrations, private documents or offers were created or modified.
 
 | Case | Observed evidence | Verdict |
 |---|---|---|

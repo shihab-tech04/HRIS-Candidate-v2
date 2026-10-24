@@ -2,11 +2,17 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Default Supabase configuration from project instructions
 export const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL || 'https://oslgwxaqfbteqtwqvdzs.supabase.co';
+  import.meta.env.VITE_SUPABASE_URL || 'https://xfuxnljfrgvusbrpvxpa.supabase.co';
 
 export const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  (typeof window !== 'undefined' ? localStorage.getItem('synesis_supabase_anon_key') || '' : '');
+  (import.meta.env.DEV && typeof window !== 'undefined' ? localStorage.getItem('synesis_supabase_anon_key') || '' : '') ||
+  'sb_publishable_4xzRp7eeyLuj1fQmmx_Vtw_-g_4MeCT';
+
+// The released Candidate application must not silently use an old Supabase project.
+if (import.meta.env.PROD && import.meta.env.VITE_CANDIDATE_PUBLIC_ONLY !== 'true' && SUPABASE_URL !== 'https://xfuxnljfrgvusbrpvxpa.supabase.co') {
+  throw new Error('Candidate production release is configured for an unapproved HRIS database.');
+}
 
 let clientInstance: SupabaseClient | null = null;
 

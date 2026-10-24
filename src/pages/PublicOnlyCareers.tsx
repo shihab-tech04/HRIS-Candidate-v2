@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { CandidateLocaleSwitch, useCandidateLocale } from '../context/CandidateLocaleContext';
 import { PublicJobsPage } from './PublicJobsPage';
 import VerifiedJobDetails from './VerifiedJobDetails';
 
@@ -8,12 +9,29 @@ import VerifiedJobDetails from './VerifiedJobDetails';
  * Existing candidate journeys remain unchanged in the full application.
  */
 export function PublicOnlyCareers() {
+  const { t } = useCandidateLocale();
   const [jobId, setJobId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('job'));
+  const visitedJobDetails = useRef(Boolean(jobId));
   useEffect(() => {
-    const onHistory = () => setJobId(new URLSearchParams(window.location.search).get('job'));
+    const onHistory = () => {
+      const nextJobId = new URLSearchParams(window.location.search).get('job');
+      setJobId(nextJobId);
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    };
     window.addEventListener('popstate', onHistory);
     return () => window.removeEventListener('popstate', onHistory);
   }, []);
+  useEffect(() => {
+    if (jobId) {
+      visitedJobDetails.current = true;
+      return;
+    }
+    if (!visitedJobDetails.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('candidate-careers-heading')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [jobId]);
   const [notice, setNotice] = useState('');
   const openJob = (id: string) => {
     const url = new URL(window.location.href);
@@ -21,6 +39,7 @@ export function PublicOnlyCareers() {
     window.history.pushState(null, '', url.pathname + url.search + url.hash);
     setJobId(id);
     setNotice('');
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
   const backToJobs = () => {
     const url = new URL(window.location.href);
@@ -28,6 +47,7 @@ export function PublicOnlyCareers() {
     window.history.replaceState(null, '', url.pathname + url.search + url.hash);
     setJobId(null);
     setNotice('');
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
   const onUnavailable = () => setNotice('Applications, accounts and saved jobs are temporarily unavailable while candidate privacy and authorization are being verified.');
   return (
@@ -38,18 +58,21 @@ export function PublicOnlyCareers() {
             className="text-xl font-bold text-[#085587] rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#085587]">
             Synesis Careers
           </button>
-          <p className="text-sm text-slate-600">Public vacancy preview</p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-slate-600">{t('Public vacancy preview')}</p>
+            <CandidateLocaleSwitch />
+          </div>
         </div>
       </header>
-      <section aria-label="Candidate service status" className="bg-sky-50 border-b border-sky-200">
+      <section aria-label={t('Candidate service status')} className="bg-sky-50 border-b border-sky-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
-          <p className="text-sm text-[#085587]">
-            Browse verified vacancies. Candidate registration and applications will open after security testing.
+          <p id="candidate-public-safety-notice" className="text-sm text-[#085587]">
+            {t('Browse verified vacancies. Candidate registration and applications will open after security testing.')}
           </p>
         </div>
       </section>
       {notice && <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 pt-4">
-        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{notice}</p>
+        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{t(notice)}</p>
       </div>}
       <div className="flex-1">
         {jobId ? <VerifiedJobDetails jobId={jobId} publicOnly onBack={backToJobs}
@@ -59,7 +82,7 @@ export function PublicOnlyCareers() {
       </div>
       <footer className="border-t border-slate-200 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
-          <p className="text-xs text-slate-600">Synesis Careers · Public vacancy information only. No application submissions are accepted in this preview.</p>
+          <p className="text-xs text-slate-600">{t('Synesis Careers · Public vacancy information only. No application submissions are accepted in this preview.')}</p>
         </div>
       </footer>
     </div>

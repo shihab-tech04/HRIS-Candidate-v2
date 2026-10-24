@@ -1,15 +1,5 @@
 name: Candidate-v2 recovery validation (no deployment)
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'index.html'
-      - '404.html'
-      - 'vite.config.ts'
-      - '.github/workflows/release-preview.yml'
-      - '.github/workflows/recovery-validation.yml'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +7,8 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/development/hris-checkpoints'
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +17,7 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun test
+      - run: npm run test:routes
       - run: bun run lint
       - name: Compile and verify Candidate-v2 Pages paths without deployment
         run: |

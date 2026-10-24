@@ -1,0 +1,100 @@
+name: WS05 Candidate hosted anonymous HTTP boundary (read-only, no deploy)
+on:
+  push:
+    branches: [integration/ws05-candidate-final-review-20261022]
+permissions:
+  contents: read
+concurrency:
+  group: ws05-candidate-hosted-anon-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  hosted-anon-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check actual replacement Supabase anonymous HTTP without data writes
+        env:
+          HRIS_PUBLIC_API_ORIGIN: https://xfuxnljfrgvusbrpvxpa.supabase.co
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          release = pathlib.Path(".github/workflows/release-preview.yml").read_text()
+          match = re.search(r"(?m)^\s*VITE_SUPABASE_ANON_KEY:\s*(sb_publishable_[A-Za-z0-9_-]+)\s*$", release)
+          if not match:
+              raise SystemExit("PUBLISHABLE_KEY_CONFIG_MISSING")
+          key = match.group(1)
+          origin = os.environ["HRIS_PUBLIC_API_ORIGIN"].rstrip("/")
+
+          def get(url):
+              req = urllib.request.Request(url, headers={
+                  "apikey": key, "Accept": "application/json",
+                  "User-Agent": "HRIS-WS05-read-only-anonymous-check"
+              }, method="GET")
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as response:
+                      return response.status, response.read(2_000_000)
+              except urllib.error.HTTPError as error:
+                  return error.code, b""
+
+          checks = [
+              ("published_jobs", "/rest/v1/candidate_published_jobs?select=*&limit=3", True),
+              ("candidate_profiles", "/rest/v1/candidate_profiles?select=user_id&limit=1", False),
+              ("candidate_cvs", "/rest/v1/candidate_cvs?select=id&limit=1", False),
+              ("job_applications", "/rest/v1/job_applications?select=id&limit=1", False),
+              ("candidate_saved_jobs", "/rest/v1/candidate_saved_jobs?select=id&limit=1", False),
+              ("candidate_notifications", "/rest/v1/candidate_notifications?select=id&limit=1", False),
+          ]
+          failures = []
+          for label, path, is_public in checks:
+              status, raw = get(origin + path)
+              count = "DENIED"
+              if status == 200:
+                  try:
+                      result = json.loads(raw)
+                  except Exception:
+                      failures.append(label + ":invalid_json")
+                      continue
+                  if not isinstance(result, list):
+                      failures.append(label + ":unexpected_shape")
+                      continue
+                  count = len(result)
+                  if not is_public and result:
+                      failures.append(label + ":ANONYMOUS_PRIVATE_ROWS_EXPOSED")
+                  if is_public:
+                      for row in result:
+                          if (row.get("status") not in (None, "published")
+                              or row.get("is_published") is False
+                              or row.get("is_active") is False):
+                              failures.append(label + ":UNPUBLISHED_ROW_VISIBLE")
+              elif is_public or status not in (401, 403, 404):
+                  failures.append(label + ":unexpected_status_" + str(status))
+              print("HOSTED_ANON_HTTP", label, "status", status, "rows", count, flush=True)
+
+          auth_status, _ = get(origin + "/auth/v1/user")
+          print("HOSTED_ANON_HTTP", "auth_user", "status", auth_status)
+          if auth_status not in (401, 403):
+              failures.append("auth_user:unexpected_status_" + str(auth_status))
+
+          obj_status, _ = get(origin + "/storage/v1/object/authenticated/candidate-documents/__ws05_anon_read_only_absent_object__")
+          print("HOSTED_ANON_HTTP", "nonexistent_private_object", "status", obj_status)
+          if obj_status == 200:
+              failures.append("nonexistent_private_object:unexpected_success")
+
+          if failures:
+              print("HOSTED_ANON_HTTP_CHECK_FAIL", ",".join(failures))
+              raise SystemExit(1)
+          print("HOSTED_ANON_HTTP_READ_ONLY_OBSERVATION_PASS")
+          print("LIMITATION: Empty private tables cannot prove denial of real rows.")
+          print("LIMITATION: No signed two-tenant Auth/Storage/RPC acceptance performed.")
+          PY
