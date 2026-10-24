@@ -1,0 +1,44 @@
+name: WS05 approved Candidate public job detail release
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ws05-candidate-direct-job-lookup-dispatch.yml
+permissions:
+  contents: read
+  actions: write
+jobs:
+  release-request:
+    if: github.repository == 'shihab-tech04/HRIS-Candidate-v2' && github.ref == 'refs/heads/main' && github.actor == 'shihab-tech04'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Enforce exact source, reviewed PR and public-only release
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=d6d989216c314d1e43f8c4f9c7c01eaee2f6ac0f
+          git merge-base --is-ancestor "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD)"
+          test "$changed" = '.github/workflows/ws05-candidate-direct-job-lookup-dispatch.yml'
+          grep -Fq "VITE_CANDIDATE_PUBLIC_ONLY: 'true'" .github/workflows/release-preview.yml
+          grep -Fq "inputs.release_approved == true" .github/workflows/release-preview.yml
+          grep -Fq "workflow_dispatch:" .github/workflows/release-preview.yml
+          grep -Fq "actions/deploy-pages@v4" .github/workflows/release-preview.yml
+          grep -Fq "String(candidate.id) === jobId" src/lib/api.ts
+          grep -Fq ".eq('is_published', true)" src/lib/api.ts
+          test -f tests/candidate-direct-published-job-details.test.ts
+          echo 'Approved Candidate SQL-detail feature and public-only release gates verified'
+      - name: Dispatch existing owner-authorized Pages release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/release-preview.yml/dispatches" \
+            -f ref=main \
+            -F 'inputs[release_approved]=true'
