@@ -328,11 +328,19 @@ export async function getPublishedJobById(jobId: string): Promise<PublishedJob |
       .eq('id', jobId)
       .eq('status', 'published')
       .eq('is_published', true)
-      .eq('is_active', true)
-      .maybeSingle();
+      .eq('is_active', true);
     if (!error) {
-      if (!data) return null;
-      const job = normalizePublishedJob(data as Record<string, any>);
+      // PostgREST .select() returns rows. Keep the row ID/status checks on the
+      // client as well so local/isolated query fixtures cannot accidentally
+      // accept an unrelated job when mocking chained filters.
+      const row = Array.isArray(data) ? data.find((candidate) =>
+        String(candidate.id) === jobId &&
+        candidate.status === 'published' &&
+        candidate.is_published === true &&
+        candidate.is_active === true
+      ) : null;
+      if (!row) return null;
+      const job = normalizePublishedJob(row as Record<string, any>);
       return isRecruitmentDeadlineOpen(job.application_deadline) ? job : null;
     }
     if (!DEMO_MODE) {
