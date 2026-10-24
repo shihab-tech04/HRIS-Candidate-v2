@@ -1,0 +1,43 @@
+name: Candidate pull request verification
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: candidate-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  candidate-pr-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install locked Candidate dependencies
+        run: bun install --frozen-lockfile
+      - name: Candidate unit and journey contract tests
+        run: bun test ./tests/*.test.*
+      - name: Candidate route, localization, and privacy regressions
+        run: npm run test:routes
+      - name: TypeScript check
+        run: bun run lint
+      - name: Build public-only GitHub Pages artifact
+        env:
+          VITE_SUPABASE_URL: https://xfuxnljfrgvusbrpvxpa.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-only-placeholder
+          VITE_ENABLE_DEMO_MODE: 'false'
+          VITE_CANDIDATE_PUBLIC_ONLY: 'true'
+        run: |
+          bunx vite build --base=/HRIS-Candidate-v2/
+          test -s dist/index.html
+          grep -Eq 'src="/HRIS-Candidate-v2/assets/[^"]+\.js"' dist/index.html
+          grep -Eq 'href="/HRIS-Candidate-v2/assets/[^"]+\.css"' dist/index.html
+          ! grep -Eq 'src="/src/main\.tsx"|/HRIS-Candidate/assets/' dist/index.html
+          grep -Fq 'id="root"' dist/index.html
+          ! grep -q '/src/assets/images/' dist/index.html
+          ! grep -q 'VITE_CANDIDATE_PUBLIC_ONLY' dist/index.html
