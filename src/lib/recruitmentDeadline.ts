@@ -16,3 +16,15 @@ export function isRecruitmentDeadlineOpen(
   if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== deadline) return false;
   return deadline >= now.toISOString().slice(0, 10);
 }
+
+/**
+ * PostgreSQL DATE values are calendar dates, not viewer-local instants.
+ * Force UTC when displaying the same deadline in English or Bengali, so
+ * viewers west of UTC never see the previous day in a public vacancy.
+ */
+export function formatRecruitmentDeadlineDate(
+  deadline: string,
+  locale: 'en-BD' | 'bn-BD',
+): string {
+  return new Date(deadline).toLocaleDateString(locale, { timeZone: 'UTC' });
+}
