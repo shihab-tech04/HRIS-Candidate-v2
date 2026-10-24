@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PublishedJob } from '../types';
 import { getPublishedJobs, toggleVerifiedSavedJob, listVerifiedSavedJobIds } from '../lib/api';
+import { formatRecruitmentDeadlineDate } from '../lib/recruitmentDeadline';
 import { createLatestRequestGate } from '../lib/latestRequest.mjs';
 import { useAuth } from '../context/AuthContext';
 import { useCandidateLocale } from '../context/CandidateLocaleContext';
@@ -437,7 +438,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
                             }
                           >
                             {t('Deadline: {date} ({relative})', {
-                              date: new Date(job.application_deadline).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD'),
+                              date: formatRecruitmentDeadlineDate(job.application_deadline, locale === 'bn' ? 'bn-BD' : 'en-BD'),
                               relative: deadlineText,
                             })}
                           </span>
