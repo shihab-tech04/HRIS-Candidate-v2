@@ -20,6 +20,12 @@ jobs:
           bun-version: 1.4.2
       - name: Install locked Candidate dependencies
         run: bun install --frozen-lockfile
+      - name: Restore pinned Main HRIS story catalogue for cross-repository tests
+        run: |
+          git clone --quiet --depth 1 --branch integration/ws05-main-final-review-20261022 https://github.com/shihab-tech04/HRIS-v2.git ../HRIS-v2
+          test -s ../HRIS-v2/docs/programme/recovered-source/CANONICAL_USER_STORY_MATRIX.json
+          actual_sha="$(git -C ../HRIS-v2 rev-parse HEAD)"
+          test "$actual_sha" = da5fe3bc3b08f89e6945939ecef4b75284dcf348 || { echo "::error::Main HRIS source drift"; exit 1; }
       - name: Candidate unit and journey contract tests
         run: bun test ./tests/*.test.*
       - name: Candidate route, localization, and privacy regressions
