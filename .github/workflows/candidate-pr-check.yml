@@ -24,8 +24,12 @@ jobs:
         run: |
           git clone --quiet --depth 1 --branch integration/ws05-main-final-review-20261022 https://github.com/shihab-tech04/HRIS-v2.git ../HRIS-v2
           test -s ../HRIS-v2/docs/programme/recovered-source/CANONICAL_USER_STORY_MATRIX.json
-          actual_sha="$(git -C ../HRIS-v2 rev-parse HEAD)"
-          test "$actual_sha" = da5fe3bc3b08f89e6945939ecef4b75284dcf348 || { echo "::error::Main HRIS source drift"; exit 1; }
+          expected_sha=aefa24196b973db586e754d1f7fa20fab49b29b7
+          if [ "$(git -C ../HRIS-v2 rev-parse HEAD)" != "$expected_sha" ]; then
+            git -C ../HRIS-v2 fetch --no-tags --depth 1 origin "$expected_sha"
+            git -C ../HRIS-v2 checkout --detach "$expected_sha"
+          fi
+          test "$(git -C ../HRIS-v2 rev-parse HEAD)" = "$expected_sha" || { echo "::error::Main HRIS verified catalogue unavailable"; exit 1; }
       - name: Candidate unit and journey contract tests
         run: bun test ./tests/*.test.*
       - name: Candidate route, localization, and privacy regressions
