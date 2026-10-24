@@ -1,0 +1,73 @@
+name: WS05 Candidate real production Chromium smoke (no deploy)
+on:
+  push:
+    branches: [validation/candidate-hosted-browser-20261024]
+permissions:
+  contents: read
+jobs:
+  real-hosted-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install isolated Chromium runner (no production writes)
+        run: |
+          npm install --no-save --no-package-lock --include=optional --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Exercise the actually hosted EN/BN public Careers in four responsive widths
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          import assert from 'node:assert/strict';
+          import { mkdir } from 'node:fs/promises';
+          const url = 'https://shihab-tech04.github.io/HRIS-Candidate-v2/';
+          const browser = await chromium.launch({headless:true});
+          await mkdir('hosted-smoke-evidence', {recursive:true});
+          try {
+            for (const width of [375,768,1280,1920]) {
+              const page = await browser.newPage({viewport:{width,height:900}});
+              const errors = [];
+              const writes = [];
+              page.on('pageerror', err => errors.push(err.message));
+              page.on('request', req => {
+                if (req.url().includes('xfuxnljfrgvusbrpvxpa.supabase.co') &&
+                  !['GET','OPTIONS','HEAD'].includes(req.method())) writes.push(req.method());
+              });
+              const response = await page.goto(url,{waitUntil:'domcontentloaded',timeout:45000});
+              assert.equal(response?.status(),200,'actual hosted Careers status');
+              await page.getByRole('heading',{name:'Build Mission-Critical Platforms That Move Nations Forward'}).waitFor({state:'visible',timeout:30000});
+              await page.locator('#candidate-public-safety-notice').waitFor({state:'visible'});
+              assert.match(await page.locator('#candidate-public-safety-notice').innerText(),/registration and applications will open after security testing/i);
+              await page.getByRole('textbox',{name:'Search vacancies'}).waitFor({state:'visible'});
+              const enWidth=await page.evaluate(()=>document.documentElement.scrollWidth);
+              assert.ok(enWidth<=width+1,'EN horizontal overflow '+width+': '+enWidth);
+              await page.screenshot({path:'hosted-smoke-evidence/actual-candidate-en-'+width+'.png',fullPage:true});
+              await page.getByRole('button',{name:'Switch to Bengali'}).click();
+              await page.getByRole('heading',{name:'দেশের অগ্রযাত্রায় গুরুত্বপূর্ণ ডিজিটাল প্ল্যাটফর্ম তৈরি করুন'}).waitFor({state:'visible',timeout:15000});
+              assert.equal(await page.locator('html').getAttribute('lang'),'bn');
+              const bnWidth=await page.evaluate(()=>document.documentElement.scrollWidth);
+              assert.ok(bnWidth<=width+1,'BN horizontal overflow '+width+': '+bnWidth);
+              await page.screenshot({path:'hosted-smoke-evidence/actual-candidate-bn-'+width+'.png',fullPage:true});
+              assert.equal(errors.length,0,'React errors: '+errors.join(';'));
+              assert.equal(writes.length,0,'Candidate public-only unexpectedly attempted backend writes');
+              console.log('HOSTED_CHROMIUM_PASS width',width,'en',enWidth,'bn',bnWidth);
+              await page.close();
+            }
+            console.log('PASS: actual production Candidate EN/BN 375/768/1280/1920; live fetch only; no private mutations');
+          } finally {await browser.close();}
+          NODE
+      - name: Keep hosted browser screenshots (public information only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-hosted-real-chromium-20261024
+          path: hosted-smoke-evidence/
+          if-no-files-found: ignore
+          retention-days: 14
