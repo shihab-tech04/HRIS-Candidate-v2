@@ -14,14 +14,15 @@ test('Admin job deep-links use an ID-filtered authoritative published SQL view, 
   expect(details).toContain(".eq('status', 'published')");
   expect(details).toContain(".eq('is_published', true)");
   expect(details).toContain(".eq('is_active', true)");
-  expect(details).toContain('.maybeSingle()');
+  expect(details).toContain('Array.isArray(data)');
+  expect(details).toContain("String(candidate.id) === jobId");
   expect(details.indexOf('supabase.from')).toBeLessThan(details.indexOf('const jobs = await getPublishedJobs()'));
 });
 
 test('closed/unpublished/expired IDs are never presented as public job details', () => {
-  expect(details).toContain('if (!data) return null;');
+  expect(details).toContain('if (!row) return null;');
   expect(details).toContain('isRecruitmentDeadlineOpen(job.application_deadline) ? job : null');
-  expect(details).toContain('normalizePublishedJob(data as Record<string, any>)');
+  expect(details).toContain('normalizePublishedJob(row as Record<string, any>)');
   expect(api).toContain('salaryPublic && row.salary_min != null');
   expect(api).toContain('salaryPublic && row.salary_max != null');
   expect(api).toContain('salaryPublic ? row.salary_currency ?? undefined : undefined');
