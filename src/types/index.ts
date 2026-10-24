@@ -30,7 +30,7 @@ export interface PublishedJob {
   required_documents?: string[];
 }
 
-export type ScreeningQuestionType = 'text' | 'yes_no' | 'select' | 'multiselect' | 'number';
+export type ScreeningQuestionType = 'text' | 'long_text' | 'date' | 'yes_no' | 'select' | 'multiselect' | 'number';
 
 export interface ScreeningQuestion {
   id: string;
