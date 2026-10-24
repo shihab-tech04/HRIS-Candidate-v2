@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCandidateLocale } from '../context/CandidateLocaleContext';
 import { PublishedJob } from '../types';
 import { getPublishedJobById, listVerifiedSavedJobIds, toggleVerifiedSavedJob } from '../lib/api';
+import { formatRecruitmentDeadlineDate } from '../lib/recruitmentDeadline';
 
 type Props = {
   jobId: string;
@@ -121,7 +122,7 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
             {job.title}
           </h1>
           <p className="text-sm">{t(job.department)} · {job.location} · {t(job.employment_type)}</p>
-          <p className="text-sm">{t('Application deadline: {date}', { date: new Date(job.application_deadline).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-BD') })}</p>
+          <p className="text-sm">{t('Application deadline: {date}', { date: formatRecruitmentDeadlineDate(job.application_deadline, locale === 'bn' ? 'bn-BD' : 'en-BD') })}</p>
           {job.salary_is_public && job.published_salary_min != null && <p className="text-sm">
             {t('Published salary:')} {job.salary_currency || 'BDT'} {new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD').format(job.published_salary_min)}
             {job.published_salary_max != null ? ` – ${new Intl.NumberFormat(locale === 'bn' ? 'bn-BD' : 'en-BD').format(job.published_salary_max)}` : ''}
