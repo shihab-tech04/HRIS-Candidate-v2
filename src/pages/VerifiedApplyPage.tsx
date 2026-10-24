@@ -1,3 +1,4 @@
+import { parseScreeningNumberInput } from '../lib/screeningQuestionTypes';
 import React, { useEffect, useState } from 'react';
 import { CandidateCV, CandidateStoredDocument, PublishedJob } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -290,9 +291,13 @@ export default function VerifiedApplyPage({ jobId, onBack, onApplicationSuccess 
             <span>{option}</span></span>)}</span> : q.type === 'select' || q.type === 'yes_no' ?
           <select className={field+' mt-1'} value={String(answers[q.id] || '')} onChange={e=>setAnswers(a=>({...a,[q.id]:e.target.value}))}>
             <option value="">{t('Select an answer')}</option>
-            {(q.type === 'yes_no'?['Yes','No'] : q.options || []).map(x=><option key={x} value={x}>{q.type === 'yes_no' ? t(x) : x}</option>)}</select> :
-          <input className={field+' mt-1'} type={q.type==='number'?'number':'text'} value={answers[q.id] || ''}
-            onChange={e=>setAnswers(a=>({...a,[q.id]:q.type==='number'?Number(e.target.value):e.target.value}))} />}</label>)}
+            {(q.type === 'yes_no'?['Yes','No'] : q.options || []).map(x=><option key={x} value={x}>{q.type === 'yes_no' ? t(x) : x}</option>)}</select> : q.type === 'long_text' ?
+          <textarea rows={4} className={field+' mt-1'} value={String(answers[q.id] ?? '')}
+            onChange={e=>setAnswers(a=>({...a,[q.id]:e.target.value}))} /> :
+          <input className={field+' mt-1'} type={q.type === 'number' ? 'number' : q.type === 'date' ? 'date' : 'text'}
+            value={answers[q.id] ?? ''}
+            onChange={e=>setAnswers(a=>({...a,[q.id]:q.type === 'number'
+              ? parseScreeningNumberInput(e.target.value) : e.target.value}))} />}</label>)}
         <label className="block text-sm">{t('Cover letter (optional)')}
           <textarea rows={5} value={coverLetter} onChange={e=>setCoverLetter(e.target.value)} className={field+' mt-1'} /></label>
         <div className="border-t pt-4 space-y-3">
