@@ -17,6 +17,7 @@ import {
   CandidateStoredDocument
 } from '../types';
 import { INITIAL_PUBLISHED_JOBS } from './mockData';
+import { isRecruitmentDeadlineOpen } from './recruitmentDeadline';
 
 const LOCAL_STORAGE_KEY_PREFIX = 'synesis_hrmis_candidate_';
 
@@ -298,7 +299,7 @@ export async function getPublishedJobs(params?: {
   }
 
   let filtered = jobs.filter((j) => j.status === 'published' &&
-    (!j.application_deadline || j.application_deadline >= new Date().toISOString().slice(0, 10)));
+    isRecruitmentDeadlineOpen(j.application_deadline));
   if (params?.search?.trim()) {
     const term = params.search.toLowerCase().trim();
     filtered = filtered.filter((j) =>
@@ -493,7 +494,7 @@ export async function applyToJob(
   if (job.status !== 'published') {
     return { success: false, error: 'This vacancy is no longer accepting new applications.' };
   }
-  if (new Date(job.application_deadline).getTime() < Date.now()) {
+  if (!isRecruitmentDeadlineOpen(job.application_deadline)) {
     return { success: false, error: 'The application deadline for this position has expired.' };
   }
 
