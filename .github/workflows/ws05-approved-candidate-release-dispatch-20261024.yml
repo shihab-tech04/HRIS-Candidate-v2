@@ -1,0 +1,43 @@
+name: WS05 one-time approved Candidate Pages dispatch
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ws05-approved-candidate-release-dispatch-20261024.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-approved-release:
+    if: github.repository == 'shihab-tech04/HRIS-Candidate-v2' && github.ref == 'refs/heads/main' && github.actor == 'shihab-tech04'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify protected, unchanged approved public-only Candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=5ea32efdc1275748b9d2943cc2521ffa1754a262
+          git merge-base --is-ancestor "$base" HEAD
+          changed="$(git diff --name-only "$base" HEAD)"
+          test "$changed" = '.github/workflows/ws05-approved-candidate-release-dispatch-20261024.yml'
+          grep -Fq "VITE_CANDIDATE_PUBLIC_ONLY: 'true'" .github/workflows/release-preview.yml
+          grep -Fq 'inputs.release_approved == true' .github/workflows/release-preview.yml
+          grep -Fq 'workflow_dispatch:' .github/workflows/release-preview.yml
+          echo "Source unchanged, public-only/manual release gate retained."
+      - name: Trigger the existing owner-approved release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/release-preview.yml/dispatches" \
+            -f ref=main \
+            -F 'inputs[release_approved]=true'
+          echo "Approved Candidate workflow_dispatch accepted."
