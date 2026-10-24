@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { INITIAL_PUBLISHED_JOBS } from './mockData';
 import { isRecruitmentDeadlineOpen } from './recruitmentDeadline';
+import { mapSqlScreeningQuestionType } from './screeningQuestionTypes';
 
 const LOCAL_STORAGE_KEY_PREFIX = 'synesis_hrmis_candidate_';
 
@@ -261,9 +262,7 @@ function normalizePublishedJob(row: Record<string, any>): PublishedJob {
     screening_questions: screening.map((q: Record<string, any>) => ({
       id: String(q.id || ''),
       question: String(q.questionText || q.question || ''),
-      type: q.type === 'yes_no' ? 'yes_no' : q.type === 'number' ? 'number'
-        : q.type === 'single_select' ? 'select'
-        : q.type === 'multi_select' ? 'multiselect' : 'text',
+      type: mapSqlScreeningQuestionType(q.type),
       required: q.required === true,
       options: Array.isArray(q.options) ? q.options : undefined,
     })),
