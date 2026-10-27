@@ -57,6 +57,7 @@ const tenantToday = psql("SELECT (now() AT TIME ZONE 'Asia/Dhaka')::date::text")
 const jobId = randomUUID();
 const interviewCompletedJobId = randomUUID();
 const otherTenantJobId = randomUUID();
+const unpublishedJobId = randomUUID();
 const withdrawalJobId = randomUUID();
 const rejectedJobId = randomUUID();
 const foreignApplicationId = randomUUID();
@@ -145,6 +146,7 @@ async function cleanupStaleTestJobs() {
     || (row.title === 'Other Tenant Role' && /^C1-X-[0-9a-f]{8}$/i.test(row.reference_number || ''))
     || (row.title === 'Candidate Withdrawal Role' && /^C1-W-[0-9a-f]{8}$/i.test(row.reference_number || ''))
     || (row.title === 'Candidate Rejected Role' && /^C1-R-[0-9a-f]{8}$/i.test(row.reference_number || ''))
+    || (row.title === 'Unpublished Acceptance Role' && /^C1-U-[0-9a-f]{8}$/i.test(row.reference_number || ''))
     || (row.title === 'Interview Completion Status Role' && /^C1-I-[0-9a-f]{8}$/i.test(row.reference_number || ''))
   ).map(row => row.id);
   if (ids.length) {
@@ -195,6 +197,7 @@ const migrationPaths = [
   path.join(mainRoot, 'supabase/migrations/20261016081154_hris_candidate_interview_completion.sql'),
   path.join(mainRoot, 'supabase/migrations/20261013170556_hris_candidate_assessment_journey.sql'),
   path.join(mainRoot, 'supabase/migrations/20261016190000_candidate_application_withdrawal.sql'),
+  path.join(mainRoot, 'supabase/migrations/20261026060240_candidate_screening_answer_validation.sql'),
 ];
 for (const migration of migrationPaths) readFileSync(migration, 'utf8');
 
@@ -241,7 +244,7 @@ try {
     vacancy_count: 1, min_experience_years: 2, skills: ['PostgreSQL'],
     responsibilities: ['Build safe systems'], requirements: ['Production SQL experience'],
     benefits: [], required_documents: ['Degree certificate'],
-    screening_questions: [{ id: 'privacy-experience', questionText: 'Describe a privacy control you have implemented.', type: 'text', required: true }],
+    screening_questions: [{ id: 'privacy-experience', questionText: 'Describe a privacy control you have implemented.', type: 'short_text', required: true }],
     instructions: 'Local acceptance vacancy', application_deadline: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
     status: 'published', is_published: true, is_active: true, published_at: new Date().toISOString(),
   };
@@ -259,6 +262,21 @@ try {
     is_published: true, is_active: true, published_at: new Date().toISOString(),
   });
   if (publicJob.error) throw publicJob.error;
+
+  const unpublishedJob = await admin.from('jobs').insert({
+    id: unpublishedJobId, tenant_id: tenantA, reference_number: `C1-U-${unpublishedJobId.slice(0, 8)}`,
+    title: 'Unpublished Acceptance Role', department_name: 'Engineering',
+    workplace_type: 'Hybrid', employment_type: 'Full-time',
+    status: 'draft', is_published: false, is_active: false,
+    required_documents: [], screening_questions: [],
+  });
+  if (unpublishedJob.error) throw unpublishedJob.error;
+  const publishedLookup = await anon.from('candidate_published_jobs').select('id').eq('id', jobId);
+  const unpublishedLookup = await anon.from('candidate_published_jobs').select('id').eq('id', unpublishedJobId);
+  assert(!publishedLookup.error && publishedLookup.data.some(row => row.id === jobId),
+    'Candidate vacancy discovery did not return the published fixture.');
+  assert(!unpublishedLookup.error && unpublishedLookup.data.length === 0,
+    'Candidate vacancy discovery exposed an unpublished fixture.');
 
   const interviewCompletedJob = await admin.from('jobs').insert({
     id: interviewCompletedJobId, tenant_id: tenantA,
@@ -910,6 +928,17 @@ try {
   await mobilePage.locator('select option').filter({ hasText: 'C1 application CV' }).waitFor({ state: 'attached' });
   const cvRow = await admin.from('candidate_cvs').select('id,document_url').eq('candidate_user_id', users[0].id).single();
   assert(!cvRow.error && cvRow.data.document_url === null, 'Structured CV did not persist as a record without a fabricated file URL.');
+  const unpublishedApplication = await users[0].client.rpc('candidate_apply_to_job', {
+    p_job_id: unpublishedJobId,
+    p_payload: {
+      selected_cv_id: cvRow.data.id,
+      answers: [],
+      declarations: { accuracyCertified: true, recruitmentDataConsent: true },
+      document_ids: [], required_document_map: {},
+    },
+  });
+  assert(unpublishedApplication.error?.code === 'P0002',
+    `Application RPC accepted the unpublished fixture: ${JSON.stringify(unpublishedApplication.error)}`);
   assert(await mobilePage.getByLabel('Verified saved CV').inputValue() === cvRow.data.id,
     'The application did not select the candidate-owned saved CV.');
   acceptedCa14Stories.add('CA14-03');
@@ -937,6 +966,17 @@ try {
     },
   });
   assert(missingScreening.error?.code === '22000', `Backend did not reject missing required screening: ${JSON.stringify(missingScreening.error)}`);
+  const invalidScreening = await users[0].client.rpc('candidate_apply_to_job', {
+    p_job_id: jobId,
+    p_payload: {
+      selected_cv_id: cvRow.data.id,
+      answers: [{ questionId: 'privacy-experience', answer: 7 }],
+      declarations: { accuracyCertified: true, recruitmentDataConsent: true },
+      document_ids: [], required_document_map: {},
+    },
+  });
+  assert(invalidScreening.error?.code === '22000' && invalidScreening.error.message.includes('screening text answer'),
+    `Backend did not reject the invalid short_text answer: ${JSON.stringify(invalidScreening.error)}`);
 
   await mobilePage.getByLabel('Document title').fill('Degree certificate');
   await mobilePage.getByLabel('PDF or Word file').setInputFiles({
@@ -958,6 +998,17 @@ try {
   assert(!profileWithDocument.error && registeredDocument?.id && registeredDocument.fileUrl.startsWith(`${users[0].id}/application-documents/`), 'Uploaded private object did not receive candidate-owned metadata.');
   const storedObjects = await admin.storage.from('candidate-documents').list(`${users[0].id}/application-documents`);
   assert(!storedObjects.error && storedObjects.data.some(file => file.name === registeredDocument.fileUrl.split('/').at(-1)), 'Supporting document did not persist in the private Storage bucket.');
+  const missingDocument = await users[0].client.rpc('candidate_apply_to_job', {
+    p_job_id: jobId,
+    p_payload: {
+      selected_cv_id: cvRow.data.id,
+      answers: [{ questionId: 'privacy-experience', answer: 'I use least-privilege row policies.' }],
+      declarations: { accuracyCertified: true, recruitmentDataConsent: true },
+      document_ids: [], required_document_map: {},
+    },
+  });
+  assert(missingDocument.error?.code === '22000' && missingDocument.error.message.includes('Every required document'),
+    `Backend did not reject the missing required document: ${JSON.stringify(missingDocument.error)}`);
   const requiredDocument = mobilePage.getByLabel(/Degree certificate/).first();
   await requiredDocument.selectOption(registeredDocument.id);
 
@@ -1064,6 +1115,26 @@ try {
     && application.application_data.required_document_map['Degree certificate'] === registeredDocument.id,
   'Required supporting document was not linked into the submitted application.');
   assert(application.application_data.answers.some(answer => answer.questionId === 'privacy-experience'), 'Screening answer was not stored in the HRIS application row.');
+  const replayedApplication = await users[0].client.rpc('candidate_apply_to_job', {
+    p_job_id: jobId,
+    p_payload: {
+      selected_cv_id: cvRow.data.id,
+      full_name: 'Candidate A Application Name',
+      phone: '+8801711223344',
+      answers: [{ questionId: 'privacy-experience', answer: 'I use least-privilege row policies.' }],
+      cover_letter: 'I am interested in this role.',
+      declarations: { accuracyCertified: true, recruitmentDataConsent: true },
+      document_ids: [registeredDocument.id],
+      required_document_map: { 'Degree certificate': registeredDocument.id },
+    },
+  });
+  assert(replayedApplication.error?.code === '23505' && replayedApplication.error.message.includes('already applied'),
+    `Exact application replay was not rejected as a duplicate: ${JSON.stringify(replayedApplication.error)}`);
+  const persistedAfterReplay = await admin.from('job_applications')
+    .select('id').eq('job_id', jobId).eq('candidate_user_id', users[0].id);
+  assert(!persistedAfterReplay.error && persistedAfterReplay.data.length === 1
+    && persistedAfterReplay.data[0].id === application.id,
+  'Exact application replay created or changed persisted acceptance data.');
   acceptedCa14Stories.add('CA14-09');
   acceptedCa14Stories.add('CA14-10');
   acceptedCa14Stories.add('CA14-05');
