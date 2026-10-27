@@ -28,7 +28,7 @@ jobs:
       CI: '1'
       HRIS_DOCKER_CONTEXT: default
       HRIS_MAIN_REPO_ROOT: ${{ github.workspace }}/../HRIS-v2
-      HRIS_MAIN_REF: '3e20cf89faa96ad8caecd1f7b93c28a6b117032c'
+      HRIS_MAIN_REF: '15de3600d921ad0efb7efada401bd04a7c7383e1'
       HRIS_CANDIDATE_C1_TEST_WORKDIR: /tmp/synesis-candidate-c1-auth-github
       HRIS_CANDIDATE_C1_API_PORT: '55721'
       HRIS_CANDIDATE_C1_DB_PORT: '55722'
