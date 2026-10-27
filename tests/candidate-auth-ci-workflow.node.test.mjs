@@ -19,6 +19,9 @@ test('Candidate Auth/RLS CI pins the protected Main contract and stays local-onl
     "Existing explicitly permitted disposable push branches must remain intact");
   assert.match(workflow, /github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/release\/candidate-stable-20261017' \|\| github\.ref == 'refs\/heads\/work\/candidate-phase06-07-20261020'\)/);
   assert.match(workflow, /group: candidate-disposable-acceptance-\$\{\{ github\.ref \}\}/);
+  assert.ok(workflow.includes("HRIS_MAIN_REPO_ROOT: ${{ github.workspace }}/../HRIS-v2"));
+  assert.equal(workflow.split('working-directory: ../HRIS-v2').length - 1, 2,
+    'Main build and SQL fixtures must run from the sibling checkout, outside the Candidate TypeScript root');
   assert.match(workflow, /cancel-in-progress: true/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
   assert.match(workflow, /timeout-minutes: 45/);
