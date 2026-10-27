@@ -27,7 +27,7 @@ jobs:
     env:
       CI: '1'
       HRIS_DOCKER_CONTEXT: default
-      HRIS_MAIN_REPO_ROOT: ${{ github.workspace }}/HRIS-v2
+      HRIS_MAIN_REPO_ROOT: ${{ github.workspace }}/../HRIS-v2
       HRIS_MAIN_REF: '3e20cf89faa96ad8caecd1f7b93c28a6b117032c'
       HRIS_CANDIDATE_C1_TEST_WORKDIR: /tmp/synesis-candidate-c1-auth-github
       HRIS_CANDIDATE_C1_API_PORT: '55721'
@@ -75,10 +75,10 @@ jobs:
           fi
           echo "Disposable Candidate Auth/Postgres/Storage services are ready; generated keys were not written to logs."
       - name: Install Chromium for isolated Candidate browser acceptance
-        working-directory: HRIS-v2
+        working-directory: ../HRIS-v2
         run: npx playwright install --with-deps chromium
       - name: Verify the real Candidate stage-history RLS and grants with synthetic Auth users
-        working-directory: HRIS-v2
+        working-directory: ../HRIS-v2
         run: node tests/sql/candidate-c1/run-local-tenant-auth.mjs
       - name: Verify Candidate profile privacy and recovery in local Auth/Postgres
         run: node tests/candidate-profile-local-e2e.mjs
