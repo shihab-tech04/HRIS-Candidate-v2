@@ -18,6 +18,8 @@ test('Candidate Auth/RLS CI pins the protected Main contract and stays local-onl
   assert.ok(workflow.includes("branches: [development/hris-checkpoints, release/candidate-stable-20261017, work/candidate-phase06-07-20261020, integration/ws05-candidate-final-review-20261022, integration/ws05-candidate-nav-e2e-review-20261023]"),
     "Existing explicitly permitted disposable push branches must remain intact");
   assert.match(workflow, /github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/release\/candidate-stable-20261017' \|\| github\.ref == 'refs\/heads\/work\/candidate-phase06-07-20261020'\)/);
+  assert.match(workflow, /group: candidate-disposable-acceptance-\$\{\{ github\.ref \}\}/);
+  assert.match(workflow, /cancel-in-progress: true/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
   assert.match(workflow, /timeout-minutes: 45/);
   assert.match(workflow, /permissions:\s+contents: read/);
