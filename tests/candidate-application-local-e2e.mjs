@@ -1095,6 +1095,12 @@ try {
   acceptedCa14Stories.add('CA14-08');
   await page.getByLabel(/certify that the information supplied is complete and accurate/).check();
   await page.getByLabel(/consent to processing this information for recruitment/).check();
+  let applicationRpcArgs;
+  page.on('request', request => {
+    if (request.method() === 'POST' && request.url().includes('/rest/v1/rpc/candidate_apply_to_job')) {
+      applicationRpcArgs = JSON.parse(request.postData() || '{}');
+    }
+  });
   await page.getByRole('button', { name: 'Submit application' }).click();
   await page.waitForTimeout(1500);
   const trackingHeading = page.getByRole('heading', { name: 'My Applications' });
@@ -1115,19 +1121,9 @@ try {
     && application.application_data.required_document_map['Degree certificate'] === registeredDocument.id,
   'Required supporting document was not linked into the submitted application.');
   assert(application.application_data.answers.some(answer => answer.questionId === 'privacy-experience'), 'Screening answer was not stored in the HRIS application row.');
-  const replayedApplication = await users[0].client.rpc('candidate_apply_to_job', {
-    p_job_id: jobId,
-    p_payload: {
-      selected_cv_id: cvRow.data.id,
-      full_name: 'Candidate A Application Name',
-      phone: '+8801711223344',
-      answers: [{ questionId: 'privacy-experience', answer: 'I use least-privilege row policies.' }],
-      cover_letter: 'I am interested in this role.',
-      declarations: { accuracyCertified: true, recruitmentDataConsent: true },
-      document_ids: [registeredDocument.id],
-      required_document_map: { 'Degree certificate': registeredDocument.id },
-    },
-  });
+  assert(applicationRpcArgs?.p_job_id === jobId && applicationRpcArgs?.p_payload?.selected_cv_id === cvRow.data.id,
+    'The successful submission RPC request was not captured for an exact replay test.');
+  const replayedApplication = await users[0].client.rpc('candidate_apply_to_job', applicationRpcArgs);
   assert(replayedApplication.error?.code === '23505' && replayedApplication.error.message.includes('already applied'),
     `Exact application replay was not rejected as a duplicate: ${JSON.stringify(replayedApplication.error)}`);
   const persistedAfterReplay = await admin.from('job_applications')
