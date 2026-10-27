@@ -1,35 +1,34 @@
 name: Candidate privacy and full journey acceptance (disposable only)
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/api.ts'
+      - 'src/pages/VerifiedApplyPage.tsx'
+      - 'tests/candidate-application-local-e2e.mjs'
+      - '.github/workflows/candidate-auth-postgres-acceptance.yml'
   push:
     branches: [development/hris-checkpoints, release/candidate-stable-20261017, work/candidate-phase06-07-20261020, integration/ws05-candidate-final-review-20261022, integration/ws05-candidate-nav-e2e-review-20261023]
   workflow_dispatch:
-    inputs:
-      main_ref:
-        description: Main HRIS branch to use for the cross-system acceptance run
-        required: true
-        type: choice
-        options:
-          - development/hris-checkpoints
-          - release/hris-stable-20261017
-        default: development/hris-checkpoints
 
 permissions:
   contents: read
 
 concurrency:
+  # On pull_request, github.ref is refs/pull/<number>/merge; refs/heads/* groups isolate branch runs.
   group: candidate-disposable-acceptance-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   candidate-auth-postgres:
-    if: github.ref == 'refs/heads/integration/ws05-candidate-nav-e2e-review-20261023' || github.ref == 'refs/heads/integration/ws05-candidate-final-review-20261022' || github.ref == 'refs/heads/development/hris-checkpoints' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/')) || (github.event_name == 'push' && (github.ref == 'refs/heads/release/candidate-stable-20261017' || github.ref == 'refs/heads/work/candidate-phase06-07-20261020'))
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/integration/ws05-candidate-nav-e2e-review-20261023' || github.ref == 'refs/heads/integration/ws05-candidate-final-review-20261022' || github.ref == 'refs/heads/development/hris-checkpoints' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/')) || (github.event_name == 'push' && (github.ref == 'refs/heads/release/candidate-stable-20261017' || github.ref == 'refs/heads/work/candidate-phase06-07-20261020'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CI: '1'
       HRIS_DOCKER_CONTEXT: default
-      HRIS_MAIN_REPO_ROOT: ${{ github.workspace }}/HRIS-v2
-      HRIS_MAIN_REF: ${{ (github.ref == 'refs/heads/integration/ws05-candidate-final-review-20261022' || github.ref == 'refs/heads/integration/ws05-candidate-nav-e2e-review-20261023') && 'integration/ws05-main-final-review-20261022' || github.ref == 'refs/heads/release/candidate-stable-20261017' && 'release/hris-stable-20261017' || inputs.main_ref || 'development/hris-checkpoints' }}
+      HRIS_MAIN_REPO_ROOT: ${{ github.workspace }}/../HRIS-v2
+      HRIS_MAIN_REF: '3e20cf89faa96ad8caecd1f7b93c28a6b117032c'
       HRIS_CANDIDATE_C1_TEST_WORKDIR: /tmp/synesis-candidate-c1-auth-github
       HRIS_CANDIDATE_C1_API_PORT: '55721'
       HRIS_CANDIDATE_C1_DB_PORT: '55722'
@@ -38,8 +37,13 @@ jobs:
       DOCKER_CONTEXT: default
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout the trusted public HRIS development source for database fixtures
-        run: git clone --depth 1 --branch "$HRIS_MAIN_REF" https://github.com/shihab-tech04/HRIS-v2.git "$HRIS_MAIN_REPO_ROOT"
+      - name: Checkout the protected Main contract for disposable database fixtures
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --no-checkout https://github.com/shihab-tech04/HRIS-v2.git "$HRIS_MAIN_REPO_ROOT"
+          git -C "$HRIS_MAIN_REPO_ROOT" fetch --no-tags --depth 1 origin "$HRIS_MAIN_REF"
+          git -C "$HRIS_MAIN_REPO_ROOT" checkout --detach FETCH_HEAD
+          test "$(git -C "$HRIS_MAIN_REPO_ROOT" rev-parse HEAD)" = "$HRIS_MAIN_REF"
       - name: Record the trusted HRIS source revision used for Candidate security fixtures
         run: git -C "$HRIS_MAIN_REPO_ROOT" rev-parse HEAD
       - uses: actions/setup-node@v4
@@ -71,10 +75,10 @@ jobs:
           fi
           echo "Disposable Candidate Auth/Postgres/Storage services are ready; generated keys were not written to logs."
       - name: Install Chromium for isolated Candidate browser acceptance
-        working-directory: HRIS-v2
+        working-directory: ../HRIS-v2
         run: npx playwright install --with-deps chromium
       - name: Verify the real Candidate stage-history RLS and grants with synthetic Auth users
-        working-directory: HRIS-v2
+        working-directory: ../HRIS-v2
         run: node tests/sql/candidate-c1/run-local-tenant-auth.mjs
       - name: Verify Candidate profile privacy and recovery in local Auth/Postgres
         run: node tests/candidate-profile-local-e2e.mjs
