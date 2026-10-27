@@ -8,7 +8,7 @@ const applicationE2E = readFileSync(new URL('./candidate-application-local-e2e.m
 
 test('Candidate Auth/RLS CI pins the protected Main contract and stays local-only', () => {
   assert.match(workflow, /pull_request:\s+branches: \[main\][\s\S]*?paths:/);
-  assert.ok(workflow.includes("HRIS_MAIN_REF: '3e20cf89faa96ad8caecd1f7b93c28a6b117032c'"),
+  assert.ok(workflow.includes("HRIS_MAIN_REF: '15de3600d921ad0efb7efada401bd04a7c7383e1'"),
     "Candidate acceptance must use the exact protected Main SQL contract");
   assert.match(workflow, /github\.event_name == 'pull_request'/);
   assert.match(workflow, /git clone --quiet --depth 1 --no-checkout https:\/\/github\.com\/shihab-tech04\/HRIS-v2\.git/);
