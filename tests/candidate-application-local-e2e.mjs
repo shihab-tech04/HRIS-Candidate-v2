@@ -1035,7 +1035,7 @@ try {
       declarations: { accuracyCertified: true, recruitmentDataConsent: true }, document_ids: [], required_document_map: {},
     },
   });
-  assert(bUsesForeignCv.error?.code === '23503', `Candidate B was not denied when applying with Candidate A's CV: ${JSON.stringify(bUsesForeignCv.error)}`);
+  assert(bUsesForeignCv.error?.code === '42501', `Candidate B from another tenant was not denied by the active Candidate tenant boundary: ${JSON.stringify(bUsesForeignCv.error)}`);
   const bUsesForeignDocument = await users[1].client.rpc('candidate_add_application_document', {
     p_title: 'Forged document', p_file_name: 'degree.pdf', p_file_path: `${users[0].id}/application-documents/forged.pdf`, p_content_type: 'application/pdf',
   });
@@ -1044,7 +1044,7 @@ try {
     p_job_id: otherTenantJobId,
     p_payload: { selected_cv_id: cvRow.data.id, answers: [], declarations: { accuracyCertified: true, recruitmentDataConsent: true } },
   });
-  assert(wrongTenant.error?.code === 'P0002', `Application RPC accepted a job outside the configured recruitment tenant: ${JSON.stringify(wrongTenant.error)}`);
+  assert(wrongTenant.error?.code === '42501', `Candidate B from another tenant was not denied when submitting to a different tenant job: ${JSON.stringify(wrongTenant.error)}`);
   const anonymousCall = await anon.rpc('candidate_apply_to_job', { p_job_id: jobId, p_payload: {} });
   assert(Boolean(anonymousCall.error), 'Anonymous execution of the application RPC was not denied.');
 
