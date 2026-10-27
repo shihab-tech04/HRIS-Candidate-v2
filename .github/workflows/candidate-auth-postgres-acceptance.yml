@@ -15,8 +15,9 @@ permissions:
   contents: read
 
 concurrency:
+  # On pull_request, github.ref is refs/pull/<number>/merge; refs/heads/* groups isolate branch runs.
   group: candidate-disposable-acceptance-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   candidate-auth-postgres:
