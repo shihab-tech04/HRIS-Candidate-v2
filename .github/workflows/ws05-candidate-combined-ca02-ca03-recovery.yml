@@ -1,0 +1,40 @@
+name: WS05 Candidate combined CA02/CA03 pre-release source recovery
+on:
+  push:
+    branches: [recovery/ws05-candidate-combined-ca02-ca03-20261031]
+permissions:
+  contents: read
+jobs:
+  verified-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Full Git history and isolated exact-main restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          before='5d8d5b0670e668ac394f4934b3b6f9b871f841d1'
+          test "$(git rev-parse --is-shallow-repository)" = false
+          test "$(git rev-parse refs/remotes/origin/main)" = "$before"
+          git cat-file -e "$before^{commit}"
+          git bundle create "$RUNNER_TEMP/candidate-postmerge-source.bundle" --all HEAD
+          git bundle verify "$RUNNER_TEMP/candidate-postmerge-source.bundle"
+          git clone -q "$RUNNER_TEMP/candidate-postmerge-source.bundle" "$RUNNER_TEMP/restore"
+          git -C "$RUNNER_TEMP/restore" cat-file -e "$before^{commit}"
+          git -C "$RUNNER_TEMP/restore" fsck --full --strict
+          printf 'repo=shihab-tech04/HRIS-Candidate-v2\npre_release_main=%s\nrecovery_ref=%s\n' "$before" "$GITHUB_SHA" > "$RUNNER_TEMP/manifest.txt"
+          (cd "$RUNNER_TEMP" && sha256sum candidate-postmerge-source.bundle manifest.txt > checksums.txt && sha256sum -c checksums.txt)
+          echo "PASS: exact combined feature main recoverable"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-ca02-ca03-exact-postmerge-recovery
+          path: |
+            ${{ runner.temp }}/candidate-postmerge-source.bundle
+            ${{ runner.temp }}/manifest.txt
+            ${{ runner.temp }}/checksums.txt
+          if-no-files-found: error
+          retention-days: 30
