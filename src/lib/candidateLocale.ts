@@ -214,6 +214,8 @@ export const CANDIDATE_BENGALI: Readonly<Record<string, string>> = {
   'Benefits': 'সুবিধা',
   'Refer to circular.': 'বিস্তারিত বিজ্ঞপ্তি দেখুন।',
   'Apply': 'আবেদন করুন',
+  'Applications closed': 'আবেদন বন্ধ',
+  'Applications are closed for this vacancy.': 'এই পদের আবেদনের সময়সীমা শেষ হয়েছে।',
   'Removing…': 'সরানো হচ্ছে…',
   'Saving…': 'সংরক্ষণ হচ্ছে…',
   'Remove saved job': 'সংরক্ষিত চাকরি সরান',

@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCandidateLocale } from '../context/CandidateLocaleContext';
 import { PublishedJob } from '../types';
 import { getPublishedJobById, listVerifiedSavedJobIds, toggleVerifiedSavedJob } from '../lib/api';
-import { formatRecruitmentDeadlineDate } from '../lib/recruitmentDeadline';
+import { formatRecruitmentDeadlineDate, isRecruitmentDeadlineOpen } from '../lib/recruitmentDeadline';
 
 type Props = {
   jobId: string;
@@ -103,6 +103,7 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
     }
   }
 
+  const applicationsOpen = job ? isRecruitmentDeadlineOpen(job.application_deadline) : false;
   const button = 'rounded-lg px-4 py-2.5 text-sm font-semibold border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#085587] disabled:cursor-not-allowed disabled:opacity-50';
   return <main className="min-h-screen bg-slate-50 px-4 py-8">
     <article className="max-w-4xl mx-auto bg-white border rounded-xl p-6 space-y-5">
@@ -136,15 +137,20 @@ export default function VerifiedJobDetails({ jobId, onBack, onApply, onOpenAuth,
                   {rows.map((value, index) => <li key={index}>{value}</li>)}
                 </ul> : <p className="text-sm text-slate-500">{t('Refer to circular.')}</p>}
               </section>)}
+          {!applicationsOpen && (
+            <p id="candidate-job-closed-notice" role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {t('Applications are closed for this vacancy.')}
+            </p>
+          )}
           <div className="flex gap-3 flex-wrap border-t pt-4">
             <button
               type="button"
               onClick={() => onApply(job.id)}
-              disabled={publicOnly}
-              title={publicOnly ? t('Applications will open after security testing') : undefined}
-              aria-describedby={publicOnly ? 'candidate-public-safety-notice' : undefined}
+              disabled={publicOnly || !applicationsOpen}
+              title={!applicationsOpen ? t('Applications are closed for this vacancy.') : publicOnly ? t('Applications will open after security testing') : undefined}
+              aria-describedby={!applicationsOpen ? 'candidate-job-closed-notice' : publicOnly ? 'candidate-public-safety-notice' : undefined}
               className={button + ' bg-[#085587] text-white'}
-            >{t('Apply')}</button>
+            >{t(applicationsOpen ? 'Apply' : 'Applications closed')}</button>
             <button
               type="button"
               disabled={publicOnly || busy || loading}
