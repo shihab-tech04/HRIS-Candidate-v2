@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { sortPublishedJobs } from '../lib/jobSort.mjs';
 import { PublishedJob } from '../types';
 import { getPublishedJobs, toggleVerifiedSavedJob, listVerifiedSavedJobIds } from '../lib/api';
 import { formatRecruitmentDeadlineDate } from '../lib/recruitmentDeadline';
@@ -44,6 +45,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   const [savedJobsError, setSavedJobsError] = useState<string | null>(null);
   const [savedJobsStatus, setSavedJobsStatus] = useState<{ key: string; title: string } | null>(null);
   const [search, setSearch] = useState('');
+  const [sortOrder, setSortOrder] = useState<'default' | 'newest' | 'deadline' | 'title'>('default');
   const [submittedSearch, setSubmittedSearch] = useState('');
   const [searchVersion, setSearchVersion] = useState(0);
   const [department, setDepartment] = useState('All');
@@ -135,6 +137,8 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
   const departments = ['All', 'Engineering', 'Product & Design', 'Data & AI', 'HR & People Ops'];
   const workplaceTypes = ['All', 'Hybrid', 'Remote', 'On-site'];
   const employmentTypes = ['All', 'Full-time', 'Contract', 'Part-time', 'Internship'];
+
+  const sortedJobs = sortPublishedJobs(jobs, sortOrder) as PublishedJob[];
 
   // Format currency
   const formatSalary = (min?: number, max?: number, currency = 'BDT') => {
@@ -317,7 +321,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
         </div>
 
         {/* Results Count & Subtitle */}
-        <div className="flex items-center justify-between mb-4 px-1">
+        <div className="flex flex-wrap items-end justify-between gap-3 mb-4 px-1">
           <div>
             <h2 className="text-lg font-bold text-slate-900">
               {t('Published Career Opportunities')}
@@ -328,6 +332,21 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
               })}
             </p>
           </div>
+          <label htmlFor="candidate-vacancy-sort" className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            {t('Sort by:')}
+            <select
+              id="candidate-vacancy-sort"
+              aria-label={t('Sort vacancies')}
+              value={sortOrder}
+              onChange={event => setSortOrder(event.target.value as typeof sortOrder)}
+              className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#085587]"
+            >
+              <option value="default">{t('Default order')}</option>
+              <option value="newest">{t('Newest first')}</option>
+              <option value="deadline">{t('Deadline soonest')}</option>
+              <option value="title">{t('Title A–Z')}</option>
+            </select>
+          </label>
         </div>
 
         {/* Jobs List */}
@@ -367,7 +386,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
           </div>
         ) : (
           <div className="space-y-4 mb-16">
-            {jobs.map((job) => {
+            {sortedJobs.map((job) => {
               const salaryFormatted = formatSalary(
                 job.published_salary_min,
                 job.published_salary_max,
