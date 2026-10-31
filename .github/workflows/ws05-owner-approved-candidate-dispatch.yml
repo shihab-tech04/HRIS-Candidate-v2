@@ -9,7 +9,9 @@ permissions:
   contents: read
 jobs:
   authorized-dispatch:
-    if: github.ref == 'refs/heads/release/ws05-owner-approved-candidate-db416-20261031' && github.event.head_commit.message == 'chore(release): one-shot owner-approved Candidate workflow dispatch'
+    if: >-
+      github.ref == 'refs/heads/release/ws05-owner-approved-candidate-db416-20261031' &&
+      github.event.head_commit.message == 'chore(release): one-shot owner-approved Candidate workflow dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
