@@ -29,6 +29,39 @@ jobs:
           printf 'repo=shihab-tech04/HRIS-Candidate-v2\npre_release_main=%s\nrecovery_ref=%s\n' "$before" "$GITHUB_SHA" > "$RUNNER_TEMP/manifest.txt"
           (cd "$RUNNER_TEMP" && sha256sum candidate-postmerge-source.bundle manifest.txt > checksums.txt && sha256sum -c checksums.txt)
           echo "PASS: exact combined feature main recoverable"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install locked dependencies for combined-source gate
+        run: bun install --frozen-lockfile
+      - name: Restore pinned Main HRIS story source for integration contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sha=aefa24196b973db586e754d1f7fa20fab49b29b7
+          git clone --quiet --depth 1 --branch integration/ws05-main-final-review-20261022 https://github.com/shihab-tech04/HRIS-v2.git ../HRIS-v2
+          if [ "$(git -C ../HRIS-v2 rev-parse HEAD)" != "$expected_sha" ]; then
+            git -C ../HRIS-v2 fetch --no-tags --depth 1 origin "$expected_sha"
+            git -C ../HRIS-v2 checkout --detach "$expected_sha"
+          fi
+          test "$(git -C ../HRIS-v2 rev-parse HEAD)" = "$expected_sha"
+      - name: Exact combined Candidate unit, route, localization, type and release build
+        env:
+          VITE_SUPABASE_URL: https://xfuxnljfrgvusbrpvxpa.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-only-placeholder
+          VITE_ENABLE_DEMO_MODE: 'false'
+          VITE_CANDIDATE_PUBLIC_ONLY: 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test ./tests/*.test.*
+          npm run test:routes
+          bun run lint
+          bunx vite build --base=/HRIS-Candidate-v2/
+          test -s dist/index.html
+          grep -Eq 'src="/HRIS-Candidate-v2/assets/[^"]+\.js"' dist/index.html
+          grep -Eq 'href="/HRIS-Candidate-v2/assets/[^"]+\.css"' dist/index.html
+          grep -Fq 'id="root"' dist/index.html
       - uses: actions/upload-artifact@v4
         with:
           name: candidate-ca02-ca03-exact-postmerge-recovery
