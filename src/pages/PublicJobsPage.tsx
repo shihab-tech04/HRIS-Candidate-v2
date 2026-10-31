@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { sortPublishedJobs } from '../lib/jobSort.mjs';
 import { PublishedJob } from '../types';
 import { getPublishedJobs, toggleVerifiedSavedJob, listVerifiedSavedJobIds } from '../lib/api';
-import { formatRecruitmentDeadlineDate } from '../lib/recruitmentDeadline';
+import { formatRecruitmentDeadlineDate, isRecruitmentDeadlineOpen } from '../lib/recruitmentDeadline';
 import { createLatestRequestGate } from '../lib/latestRequest.mjs';
 import { useAuth } from '../context/AuthContext';
 import { useCandidateLocale } from '../context/CandidateLocaleContext';
@@ -394,6 +394,7 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
               );
               const isSaved = savedJobIds.has(job.id);
               const deadlineText = formatDeadline(job.application_deadline);
+              const applicationsOpen = isRecruitmentDeadlineOpen(job.application_deadline);
 
               return (
                 <div
@@ -490,16 +491,16 @@ export const PublicJobsPage: React.FC<PublicJobsPageProps> = ({
 
                       <button
                         type="button"
-                        disabled={publicOnly}
-                        title={publicOnly ? t('Applications will open after security testing') : undefined}
+                        disabled={publicOnly || !applicationsOpen}
+                        title={!applicationsOpen ? t('Applications are closed for this vacancy.') : publicOnly ? t('Applications will open after security testing') : undefined}
                         onClick={(e) => {
                           e.stopPropagation();
                           onApplyJob(job.id);
                         }}
                         className="py-2 px-4 bg-[#085587] text-white text-xs font-semibold rounded-lg hover:bg-[#074771] transition-colors whitespace-nowrap shadow-sm flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {t('Apply Now')}
-                        <ArrowRight className="w-3 h-3" />
+                        {t(applicationsOpen ? 'Apply Now' : 'Applications closed')}
+                        {applicationsOpen && <ArrowRight className="w-3 h-3" />}
                       </button>
                     </div>
                   </div>
